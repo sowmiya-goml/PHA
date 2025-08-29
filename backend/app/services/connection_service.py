@@ -223,13 +223,28 @@ class ConnectionService:
         """Test PostgreSQL connection."""
         try:
             import psycopg2
-            conn = psycopg2.connect(
-                host=connection.host,
-                port=connection.port,
-                user=connection.username,
-                password=connection.password,
-                database=connection.database_name
-            )
+            
+            # Build connection with SSL support for Neon
+            if "neon.tech" in connection.host or "aws" in connection.host:
+                # Neon PostgreSQL connection with SSL
+                conn = psycopg2.connect(
+                    host=connection.host,
+                    port=connection.port,
+                    user=connection.username,
+                    password=connection.password,
+                    database=connection.database_name,
+                    sslmode='require'
+                )
+            else:
+                # Regular PostgreSQL connection
+                conn = psycopg2.connect(
+                    host=connection.host,
+                    port=connection.port,
+                    user=connection.username,
+                    password=connection.password,
+                    database=connection.database_name
+                )
+            
             conn.close()
             return ConnectionTestResult(status="success", message="PostgreSQL connection successful")
         except ImportError:
