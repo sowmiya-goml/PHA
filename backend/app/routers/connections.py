@@ -7,7 +7,8 @@ from app.schemas.connection import (
     DatabaseConnectionCreate,
     DatabaseConnectionUpdate,
     DatabaseConnectionResponse,
-    ConnectionTestResult
+    ConnectionTestResult,
+    DatabaseSchemaResult
 )
 from app.services.connection_service import ConnectionService
 from app.db.session import get_database_manager, DatabaseManager
@@ -121,3 +122,17 @@ async def test_connection(
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to test connection: {str(e)}")
+
+
+@router.get("/{connection_id}/schema", response_model=DatabaseSchemaResult)
+async def get_database_schema(
+    connection_id: str,
+    service: ConnectionService = Depends(get_connection_service)
+):
+    """Get the schema of a database connection."""
+    try:
+        return await service.get_database_schema(connection_id)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve database schema: {str(e)}")

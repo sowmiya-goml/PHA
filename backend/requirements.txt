@@ -12,4 +12,4 @@ httpx==0.25.2
 
 # Optional database connectors (install as needed)
 # mysql-connector-python==8.2.0
-# psycopg2-binary==2.9.9
+psycopg2-binary==2.9.9
