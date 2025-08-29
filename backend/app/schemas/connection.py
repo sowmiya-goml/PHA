@@ -1,7 +1,7 @@
 """Database connection schemas for request/response validation."""
 
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 
@@ -52,5 +52,32 @@ class ConnectionTestResult(BaseModel):
     """Schema for connection test result."""
     status: str = Field(..., description="Test status (success, error, info)")
     message: str = Field(..., description="Test result message")
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DatabaseField(BaseModel):
+    """Schema for database field information."""
+    name: str = Field(..., description="Field/column name")
+    type: str = Field(..., description="Field/column data type")
+    nullable: Optional[bool] = Field(None, description="Whether field can be null")
+    default: Optional[str] = Field(None, description="Default value")
+
+
+class DatabaseTable(BaseModel):
+    """Schema for database table/collection information."""
+    name: str = Field(..., description="Table/collection name")
+    type: str = Field(..., description="Type (table, collection, view)")
+    fields: List[DatabaseField] = Field(..., description="List of fields/columns")
+    row_count: Optional[int] = Field(None, description="Approximate number of rows/documents")
+
+
+class DatabaseSchemaResult(BaseModel):
+    """Schema for database schema result."""
+    status: str = Field(..., description="Schema retrieval status (success, error)")
+    message: str = Field(..., description="Status message")
+    database_type: Optional[str] = Field(None, description="Type of database")
+    database_name: Optional[str] = Field(None, description="Name of the database")
+    tables: Optional[List[DatabaseTable]] = Field(None, description="List of tables/collections")
     
     model_config = ConfigDict(from_attributes=True)
