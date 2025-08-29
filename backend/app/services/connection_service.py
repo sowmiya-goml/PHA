@@ -241,10 +241,39 @@ class ConnectionService:
         """Test MongoDB connection."""
         try:
             from pymongo import MongoClient
-            mongo_uri = f"mongodb://{connection.username}:{connection.password}@{connection.host}:{connection.port}/{connection.database_name}"
-            test_client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+            
+            # Check if this is an Atlas connection (mongodb+srv)
+            if ".mongodb.net" in connection.host:
+                # Atlas connection - use srv format without port
+                mongo_uri = f"mongodb+srv://{connection.username}:{connection.password}@{connection.host}/{connection.database_name}?retryWrites=true&w=majority"
+            else:
+                # Regular MongoDB connection
+                mongo_uri = f"mongodb://{connection.username}:{connection.password}@{connection.host}:{connection.port}/{connection.database_name}"
+            
+            # Create client with timeout settings
+            test_client = MongoClient(
+                mongo_uri, 
+                serverSelectionTimeoutMS=10000,  # 10 seconds timeout
+                connectTimeoutMS=10000,
+                socketTimeoutMS=10000
+            )
+            
+            # Test the connection
             test_client.admin.command('ping')
             test_client.close()
-            return ConnectionTestResult(status="success", message="MongoDB connection successful")
+            
+            return ConnectionTestResult(
+                status="success", 
+                message="MongoDB connection successful"
+            )
+            
+        except ImportError:
+            return ConnectionTestResult(
+                status="error",
+                message="PyMongo not installed. Run: pip install pymongo"
+            )
         except Exception as e:
-            return ConnectionTestResult(status="error", message=f"MongoDB connection failed: {str(e)}")
+            return ConnectionTestResult(
+                status="error", 
+                message=f"MongoDB connection failed: {str(e)}"
+            )
