@@ -317,6 +317,73 @@ class ConnectionService:
                 message=f"Error retrieving database schema: {str(e)}"
             )
 
+    async def list_available_databases(self, connection_id: str):
+        """List all available databases for a MongoDB connection."""
+        collection = self.db_manager.get_connections_collection()
+        
+        try:
+            doc = collection.find_one({"_id": ObjectId(connection_id)})
+            if not doc:
+                return {"status": "error", "message": "Connection not found"}
+            
+            connection = DatabaseConnection.from_dict(doc)
+            
+            if connection.database_type.lower() == "mongodb":
+                return await self._list_mongodb_databases(connection)
+            else:
+                return {"status": "info", "message": f"Database listing not implemented for {connection.database_type}"}
+                
+        except Exception as e:
+            return {"status": "error", "message": f"Error listing databases: {str(e)}"}
+
+    async def _list_mongodb_databases(self, connection: DatabaseConnection):
+        """List MongoDB databases."""
+        try:
+            from pymongo import MongoClient
+            
+            # Build connection URI
+            if ".mongodb.net" in connection.host:
+                mongo_uri = f"mongodb+srv://{connection.username}:{connection.password}@{connection.host}/?retryWrites=true&w=majority"
+            else:
+                mongo_uri = f"mongodb://{connection.username}:{connection.password}@{connection.host}:{connection.port}/"
+            
+            client = MongoClient(
+                mongo_uri,
+                serverSelectionTimeoutMS=5000,
+                connectTimeoutMS=5000,
+                socketTimeoutMS=5000
+            )
+            
+            # List all databases
+            db_names = client.list_database_names()
+            
+            # Get database info
+            databases = []
+            for db_name in db_names:
+                db = client[db_name]
+                collections = db.list_collection_names()
+                databases.append({
+                    "name": db_name,
+                    "collections_count": len(collections),
+                    "collections": collections[:10]  # Show first 10 collections
+                })
+            
+            client.close()
+            
+            return {
+                "status": "success",
+                "message": f"Found {len(databases)} databases",
+                "databases": databases,
+                "connection_info": {
+                    "host": connection.host,
+                    "username": connection.username,
+                    "specified_database": connection.database_name
+                }
+            }
+            
+        except Exception as e:
+            return {"status": "error", "message": f"Failed to list MongoDB databases: {str(e)}"}
+
     async def _get_database_schema_by_type(self, connection: DatabaseConnection) -> DatabaseSchemaResult:
         """Get database schema based on database type."""
         db_type = connection.database_type.lower()
@@ -336,61 +403,135 @@ class ConnectionService:
             )
 
     async def _get_mongodb_schema(self, connection: DatabaseConnection) -> DatabaseSchemaResult:
-        """Get MongoDB database schema."""
+        """Get MongoDB collections and document structure analysis."""
         try:
             from pymongo import MongoClient
+            from bson import ObjectId
+            import datetime
             
             # Build connection URI based on host type
             if ".mongodb.net" in connection.host:
-                # Atlas connection
-                mongo_uri = f"mongodb+srv://{connection.username}:{connection.password}@{connection.host}/{connection.database_name}?retryWrites=true&w=majority"
+                # Atlas connection - don't specify database in URI for better discovery
+                mongo_uri = f"mongodb+srv://{connection.username}:{connection.password}@{connection.host}/?retryWrites=true&w=majority"
             else:
                 # Regular MongoDB
-                mongo_uri = f"mongodb://{connection.username}:{connection.password}@{connection.host}:{connection.port}/{connection.database_name}"
+                mongo_uri = f"mongodb://{connection.username}:{connection.password}@{connection.host}:{connection.port}/"
             
             client = MongoClient(
                 mongo_uri,
-                serverSelectionTimeoutMS=5000,  # Reduced to 5 seconds
-                connectTimeoutMS=5000,
-                socketTimeoutMS=5000
+                serverSelectionTimeoutMS=10000,
+                connectTimeoutMS=10000,
+                socketTimeoutMS=10000
             )
             
-            db = client[connection.database_name]
+            # First, check if the specified database exists
+            available_dbs = client.list_database_names()
+            target_db = connection.database_name
+            
+            print(f"🔍 Available databases: {available_dbs}")
+            print(f"🔍 Looking for database: {target_db}")
+            
+            if target_db not in available_dbs:
+                # Filter out system databases and use the first user database
+                system_dbs = ['admin', 'local', 'config']
+                user_dbs = [db for db in available_dbs if db not in system_dbs]
+                
+                if user_dbs:
+                    target_db = user_dbs[0]
+                    print(f"🔄 Database '{connection.database_name}' not found. Using first user database: {target_db}")
+                elif available_dbs:
+                    # If no user databases, use first available (might be system db)
+                    target_db = available_dbs[0]
+                    print(f"🔄 No user databases found. Using first available: {target_db}")
+                else:
+                    # No databases found at all
+                    client.close()
+                    return DatabaseSchemaResult(
+                        status="error",
+                        message=f"No databases found on this MongoDB instance. Check connection permissions.",
+                        database_type=connection.database_type,
+                        database_name=connection.database_name
+                    )
+            
+            db = client[target_db]
             
             # Get list of collections
             collection_names = db.list_collection_names()
-            tables = []
+            print(f"🔍 Found {len(collection_names)} collections: {collection_names}")
+            
+            if not collection_names:
+                client.close()
+                return DatabaseSchemaResult(
+                    status="success",
+                    message=f"Database '{target_db}' exists but contains no collections. Available databases: {', '.join(available_dbs)}",
+                    database_type=connection.database_type,
+                    database_name=target_db,
+                    tables=[]
+                )
+            
+            collections_info = []
             
             for collection_name in collection_names:
                 try:
                     coll = db[collection_name]
                     
-                    # Get document count
-                    doc_count = coll.estimated_document_count()
+                    # Get accurate document count
+                    try:
+                        doc_count = coll.count_documents({})
+                    except:
+                        doc_count = coll.estimated_document_count()
                     
-                    # Sample a few documents to infer schema
-                    sample_docs = list(coll.aggregate([{"$sample": {"size": 5}}]))
+                    print(f"� Collection '{collection_name}': {doc_count} documents")
                     
-                    # Infer fields from sample documents
-                    fields = []
-                    field_types = {}
+                    # Skip empty collections
+                    if doc_count == 0:
+                        collections_info.append(DatabaseTable(
+                            name=collection_name,
+                            type="collection",
+                            fields=[DatabaseField(name="(empty)", type="no documents", nullable=True)],
+                            row_count=0
+                        ))
+                        continue
+                    
+                    # Analyze document structure with larger sample
+                    sample_size = min(20, doc_count)  # Sample up to 20 documents
+                    sample_docs = list(coll.aggregate([{"$sample": {"size": sample_size}}]))
+                    
+                    # Comprehensive field analysis
+                    field_analysis = {}
                     
                     for doc in sample_docs:
-                        for key, value in doc.items():
-                            if key not in field_types:
-                                field_types[key] = set()
-                            field_types[key].add(type(value).__name__)
+                        self._analyze_document_fields(doc, field_analysis)
                     
-                    # Convert to DatabaseField objects
-                    for field_name, types in field_types.items():
-                        field_type = ", ".join(sorted(types)) if len(types) > 1 else list(types)[0]
+                    # Convert analysis to DatabaseField objects
+                    fields = []
+                    for field_path, info in field_analysis.items():
+                        # Calculate field statistics
+                        total_samples = len(sample_docs)
+                        present_count = info['count']
+                        field_frequency = (present_count / total_samples) * 100
+                        
+                        # Determine most common type
+                        most_common_type = max(info['types'], key=info['types'].get)
+                        all_types = list(info['types'].keys())
+                        
+                        # Format type information
+                        if len(all_types) == 1:
+                            type_info = most_common_type
+                        else:
+                            type_info = f"{most_common_type} (variants: {', '.join(all_types)})"
+                        
                         fields.append(DatabaseField(
-                            name=field_name,
-                            type=field_type,
-                            nullable=True  # MongoDB fields are generally nullable
+                            name=field_path,
+                            type=type_info,
+                            nullable=field_frequency < 100,  # If not in all documents, it's nullable
+                            default=f"Present in {field_frequency:.1f}% of documents"
                         ))
                     
-                    tables.append(DatabaseTable(
+                    # Sort fields by frequency (most common first)
+                    fields.sort(key=lambda f: float(f.default.split()[2].rstrip('%')), reverse=True)
+                    
+                    collections_info.append(DatabaseTable(
                         name=collection_name,
                         type="collection",
                         fields=fields,
@@ -398,22 +539,31 @@ class ConnectionService:
                     ))
                     
                 except Exception as e:
-                    # If we can't analyze a collection, add it with minimal info
-                    tables.append(DatabaseTable(
+                    print(f"❌ Error analyzing collection '{collection_name}': {e}")
+                    # If we can't analyze a collection, add it with error info
+                    collections_info.append(DatabaseTable(
                         name=collection_name,
                         type="collection",
-                        fields=[DatabaseField(name="error", type="unknown", nullable=True)],
+                        fields=[DatabaseField(name="analysis_error", type=str(e)[:100], nullable=True)],
                         row_count=0
                     ))
             
             client.close()
             
+            # Create comprehensive message
+            total_docs = sum(table.row_count or 0 for table in collections_info)
+            
+            if target_db != connection.database_name:
+                message = f"Database '{connection.database_name}' not found. Analyzed {len(collections_info)} collections with {total_docs:,} total documents in '{target_db}' (auto-selected from available databases: {', '.join(available_dbs)})"
+            else:
+                message = f"Analyzed {len(collections_info)} collections with {total_docs:,} total documents in database '{target_db}'"
+            
             return DatabaseSchemaResult(
                 status="success",
-                message=f"Retrieved schema for {len(tables)} collections",
+                message=message,
                 database_type=connection.database_type,
-                database_name=connection.database_name,
-                tables=tables
+                database_name=target_db,
+                tables=collections_info
             )
             
         except ImportError:
@@ -424,8 +574,68 @@ class ConnectionService:
         except Exception as e:
             return DatabaseSchemaResult(
                 status="error",
-                message=f"Failed to retrieve MongoDB schema: {str(e)}"
+                message=f"Failed to analyze MongoDB collections: {str(e)}"
             )
+    
+    def _analyze_document_fields(self, doc, field_analysis, prefix=""):
+        """Recursively analyze document fields including nested objects and arrays."""
+        if not isinstance(doc, dict):
+            return
+            
+        for key, value in doc.items():
+            field_path = f"{prefix}.{key}" if prefix else key
+            
+            # Initialize field analysis if not exists
+            if field_path not in field_analysis:
+                field_analysis[field_path] = {
+                    'types': {},
+                    'count': 0
+                }
+            
+            field_analysis[field_path]['count'] += 1
+            
+            # Determine value type
+            value_type = self._get_mongodb_type(value)
+            
+            if value_type in field_analysis[field_path]['types']:
+                field_analysis[field_path]['types'][value_type] += 1
+            else:
+                field_analysis[field_path]['types'][value_type] = 1
+            
+            # Recursively analyze nested objects (but limit depth to avoid explosion)
+            if isinstance(value, dict) and len(prefix.split('.')) < 3:
+                self._analyze_document_fields(value, field_analysis, field_path)
+            elif isinstance(value, list) and len(value) > 0 and len(prefix.split('.')) < 3:
+                # Analyze first few array elements
+                for i, item in enumerate(value[:3]):
+                    if isinstance(item, dict):
+                        self._analyze_document_fields(item, field_analysis, f"{field_path}[{i}]")
+    
+    def _get_mongodb_type(self, value):
+        """Get MongoDB-specific type name for a value."""
+        from bson import ObjectId
+        import datetime
+        
+        if isinstance(value, ObjectId):
+            return "ObjectId"
+        elif isinstance(value, str):
+            return "string"
+        elif isinstance(value, int):
+            return "int"
+        elif isinstance(value, float):
+            return "double"
+        elif isinstance(value, bool):
+            return "boolean"
+        elif isinstance(value, datetime.datetime):
+            return "date"
+        elif isinstance(value, list):
+            return f"array[{len(value)}]"
+        elif isinstance(value, dict):
+            return "object"
+        elif value is None:
+            return "null"
+        else:
+            return type(value).__name__
 
     async def _get_postgresql_schema(self, connection: DatabaseConnection) -> DatabaseSchemaResult:
         """Get PostgreSQL database schema."""

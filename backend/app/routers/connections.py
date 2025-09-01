@@ -136,3 +136,17 @@ async def get_database_schema(
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve database schema: {str(e)}")
+
+
+@router.get("/{connection_id}/databases")
+async def list_databases(
+    connection_id: str,
+    service: ConnectionService = Depends(get_connection_service)
+):
+    """List all available databases for a connection."""
+    try:
+        return await service.list_available_databases(connection_id)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list databases: {str(e)}")
