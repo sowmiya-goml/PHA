@@ -12,7 +12,7 @@ def test_root_endpoint(client: TestClient):
     assert "message" in data
     assert "version" in data
     assert data["status"] == "healthy"
-
+ 
 
 def test_health_check(client: TestClient):
     """Test the health check endpoint."""
