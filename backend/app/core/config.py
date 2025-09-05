@@ -2,6 +2,7 @@
 
 import os
 from dotenv import load_dotenv
+from pymongo import MongoClient
 
 # Load environment variables
 load_dotenv()
@@ -36,3 +37,11 @@ class Settings:
 
 # Create a global settings instance
 settings = Settings()
+
+client = MongoClient(
+    settings.MONGODB_URL,
+    serverSelectionTimeoutMS=settings.DB_CONNECTION_TIMEOUT_MS
+)
+db = client[settings.DATABASE_NAME]
+
+fhir_apps_collection = db["fhir_apps"]
