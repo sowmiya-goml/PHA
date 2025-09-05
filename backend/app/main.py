@@ -1,13 +1,11 @@
 """Main FastAPI application entry point."""
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
 from app.core.config import settings
-from app.routers import connections
+from app.routers import connections, fhir_connections
 from app.utils.helpers import setup_logging
-from app.models.fhir_app import store_fhir_app_details, fhir_apps_collection
 
 # Setup logging
 setup_logging()
@@ -32,6 +30,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(connections.router, prefix="/api/v1")
+app.include_router(fhir_connections.router, prefix="")
 
 
 @app.get("/")
@@ -49,31 +48,6 @@ async def root():
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "timestamp": "2025-08-29T00:00:00Z"}
-
-
-class FHIRAppDetails(BaseModel):
-    user_id: str
-    password: str
-    client_id: str
-    client_secret: str
-    redirect_uri: str
-
-
-@app.post("/fhir-app/")
-def create_fhir_app(details: FHIRAppDetails):
-    try:
-        result = store_fhir_app_details(
-            fhir_apps_collection,
-            user_id=details.user_id,
-            password=details.password,
-            client_id=details.client_id,
-            client_secret=details.client_secret,
-            redirect_uri=details.redirect_uri
-        )
-        result["_id"] = str(result["_id"])  # Convert ObjectId to string for JSON serialization
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
