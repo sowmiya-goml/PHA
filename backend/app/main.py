@@ -30,7 +30,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(connections.router, prefix="/api/v1")
-app.include_router(fhir_connections.router, prefix="")
+app.include_router(fhir_connections.router, prefix="/api/v1")
 
 
 @app.get("/")

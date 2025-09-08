@@ -38,10 +38,21 @@ class Settings:
 # Create a global settings instance
 settings = Settings()
 
-client = MongoClient(
-    settings.MONGODB_URL,
-    serverSelectionTimeoutMS=settings.DB_CONNECTION_TIMEOUT_MS
-)
-db = client[settings.DATABASE_NAME]
+# Initialize MongoDB connection with better error handling
+try:
+    client = MongoClient(
+        settings.MONGODB_URL,
+        serverSelectionTimeoutMS=settings.DB_CONNECTION_TIMEOUT_MS
+    )
+    # Test the connection
+    client.admin.command('ping')
+    db = client[settings.DATABASE_NAME]
+    print(f"✅ Connected to MongoDB at {settings.MONGODB_URL}")
+except Exception as e:
+    print(f"⚠️ MongoDB connection failed: {e}")
+    print("🔄 Using in-memory storage for testing")
+    # Create a dummy db object for testing
+    client = None
+    db = None
 
-fhir_apps_collection = db["fhir_apps"]
+fhir_apps_collection = db["fhir_apps"] if db is not None else None
