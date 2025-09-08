@@ -45,6 +45,12 @@ class DatabaseManager:
             raise RuntimeError("Database not available")
         return self.connections_collection
     
+    def get_database(self) -> Database:
+        """Get the database instance."""
+        if self.db is None:
+            raise RuntimeError("Database not available")
+        return self.db
+    
     def is_connected(self) -> bool:
         """Check if database is connected."""
         return self.connections_collection is not None
