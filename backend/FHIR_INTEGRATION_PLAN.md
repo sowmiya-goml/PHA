@@ -708,3 +708,73 @@ This comprehensive plan provides everything needed to successfully integrate FHI
 **Plan Version**: 1.0.0  
 **Estimated Implementation Time**: 5 weeks  
 **Status**: Ready for Implementation
+
+from fastapi import APIRouter, status
+from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
+import uuid
+import urllib.parse
+from app.models.fhir_app import store_fhir_app_details, fhir_apps_collection
+
+router = APIRouter()
+
+class FHIRAppDetails(BaseModel):
+    user_id: str
+    password: str
+    client_id: str
+    client_secret: str
+    redirect_uri: str
+    scope: str = "openid"
+    aud: str = "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4"
+
+@router.post("/fhir-app/")
+async def create_fhir_app(details: FHIRAppDetails):
+    # Store details in MongoDB
+    app_record = store_fhir_app_details(
+        fhir_apps_collection,
+        user_id=details.user_id,
+        password=details.password,
+        client_id=details.client_id,
+        client_secret=details.client_secret,
+        redirect_uri=details.redirect_uri
+    )
+    # Build Epic authorization URL
+    state = str(uuid.uuid4())
+    params = {
+        "response_type": "code",
+        "client_id": details.client_id,
+        "redirect_uri": details.redirect_uri,
+        "scope": details.scope,
+        "state": state,
+        "aud": details.aud
+    }
+    auth_url = "https://fhir.epic.com/Authorization/oauth2/authorize?" + urllib.parse.urlencode(params)
+    # Redirect user to Epic login
+    return RedirectResponse(auth_url, status_code=status.HTTP_302_FOUND)
+
+from fastapi import APIRouter, Query, Response
+import requests
+
+router = APIRouter()
+
+@router.get("/fhir-app/callback")
+async def fhir_app_callback(
+    code: str = Query(...),
+    state: str = Query(...),
+    redirect_uri: str = Query(...)
+):
+    token_url = "https://fhir.epic.com/Authorization/oauth2/token"
+    client_id = "50560479-b540-428a-9b34-a8c49f51f0c0"
+    client_secret = "Wui9fco0ArmvIvR/p9DPhXTMhPhpRDl0H19ABUBWHGx0ZOJWFUX4QnAQuCIlyx6BGRGAmT2/TAK5R4c757k2xg=="
+    payload = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "client_id": client_id,
+        "client_secret": client_secret
+    }
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    resp = requests.post(token_url, data=payload, headers=headers)
+    if resp.status_code == 200:
+        return resp.json()
+    return Response(content=resp.text, status_code=resp.status_code)
