@@ -1,478 +1,652 @@
-# PHA Database Connection Manager - Architecture Documentation
+# AWS Health PHI Report Generator - Architecture Documentation
 
 ## 🏗️ System Architecture Overview
 
-The PHA Database Connection Manager follows a **layered architecture pattern** with clear separation of concerns, ensuring maintainability, scalability, and testability.
+The AWS Health PHI Report Generator is a secure, AI-powered system that connects to client databases, extracts schemas, and generates personalized health reports using AWS Bedrock without storing any PHI data.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Client Layer                          │
-│  (Web Browser, Mobile App, API Clients, Swagger UI)    │
+│                Doctor/Healthcare User                    │
+│         "Extract details for patient P1234"            │
 └─────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────┐
-│                   API Gateway Layer                     │
-│            (FastAPI + Uvicorn ASGI Server)             │
-│  • CORS Middleware     • Request/Response Validation    │
-│  • Error Handling      • Auto Documentation            │
+│                 FastAPI Backend (EC2)                   │
+│            • Fixed Elastic IP (Whitelisted)            │
+│            • Natural Language Processing                │
+│            • Connection Management                      │
 └─────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────┐
-│                   Router Layer                          │
-│                (app/routers/connections.py)             │
-│  • REST Endpoints      • HTTP Status Codes             │
-│  • Path Parameters     • Dependency Injection          │
+│              MongoDB Atlas (Metadata Only)              │
+│            • Connection Configurations                  │
+│            • Extracted Database Schemas                │
+│            • NO PHI Data Stored                        │
 └─────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────┐
-│                  Service Layer                          │
-│              (app/services/connection_service.py)       │
-│  • Business Logic      • Schema Analysis               │
-│  • Database Testing    • Connection Management         │
+│              AWS Bedrock (Anthropic Claude)             │
+│            • Natural Language → SQL/NoSQL              │
+│            • Query Generation & Validation             │
+│            • Health Report Generation                  │
 └─────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────┐
-│                   Model Layer                           │
-│               (app/models/connection.py)                │
-│  • Data Models         • MongoDB Mapping               │
-│  • Serialization      • Type Definitions               │
+│              Client Databases (Live Query)              │
+│          [Hospital PostgreSQL] [Clinic MySQL]          │
+│          [Healthcare MongoDB] [Other Systems]           │
 └─────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────┐
-│                  Database Layer                         │
-│                 (app/db/session.py)                     │
-│  • Connection Pooling  • Session Management            │
-│  • Error Handling     • Health Checks                  │
-└─────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────┐
-│                External Databases                       │
-│  [MongoDB Atlas] [PostgreSQL/Neon] [MySQL] [Others]   │
+│              Secure Report Delivery                     │
+│          • PDF/CSV Generation                          │
+│          • S3 Temporary Storage (Expiring URLs)       │
+│          • Direct Download                             │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 📦 Component Architecture
+## � **Complete System Flow**
 
-### 1. **API Gateway Layer** (`app/main.py`)
+### **Step 1: Database Registration**
+- Healthcare clients register their databases with connection details
+- Credentials stored securely in MongoDB (encrypted)
+- No PHI data stored - only connection metadata
+
+### **Step 2: Secure Connection Setup**
+- Backend runs on EC2 with fixed Elastic IP
+- Clients whitelist our IP for secure access
+- On-demand connections established using stored credentials
+
+### **Step 3: Schema Extraction**
+- Custom Python scripts extract database schemas
+- SQL: INFORMATION_SCHEMA queries
+- NoSQL: Collection structure sampling
+- Schemas stored in MongoDB for query generation
+
+### **Step 4: Natural Language Processing**
+- Doctor inputs plain English request: *"Extract patient P1234 details"*
+- System retrieves stored schema for target database
+- Request prepared for AI processing
+
+### **Step 5: AI Query Generation**
+- Natural language + schema sent to AWS Bedrock
+- Anthropic Claude generates safe, parameterized queries
+- Queries validated against schema and security rules
+
+### **Step 6: Live Database Query**
+- Generated query executed directly on client database
+- Real-time data retrieval (no intermediate storage)
+- Only requested patient data fetched
+
+### **Step 7: Health Report Generation**
+- Patient data processed by second Bedrock agent
+- Structured Personal Health Report created
+- Output formats: PDF, CSV with visualizations
+
+### **Step 8: Secure Delivery**
+- Reports generated in-memory only
+- Temporary S3 storage with expiring URLs
+- Direct download or secure link delivery
+
+---
+
+## 📦 **Component Architecture**
+
+### 1. **FastAPI Backend** (`app/main.py`)
 
 **Responsibilities:**
-- HTTP request/response handling
-- CORS configuration
-- Middleware management
-- Application startup/shutdown
-- Route registration
+- Natural language request processing
+- Database connection management
+- AI integration with AWS Bedrock
+- Secure report generation
 
 **Key Features:**
 ```python
 # FastAPI Application
 app = FastAPI(
-    title="PHA Database Connection Manager",
-    version="1.0.0",
-    description="API for managing database connections with schema extraction",
+    title="AWS Health PHI Report Generator",
+    version="2.0.0",
+    description="AI-powered health report generator with secure PHI processing",
     docs_url="/docs",
     redoc_url="/redoc"
 )
-
-# CORS Middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"]
-)
 ```
 
-### 2. **Router Layer** (`app/routers/connections.py`)
+### 2. **Router Layer** 
 
-**Responsibilities:**
-- Define REST API endpoints
-- Handle HTTP methods and status codes
-- Parameter validation and extraction
-- Response formatting
-
-**Endpoint Architecture:**
+**Core Endpoints:**
 ```python
-@router.post("/", response_model=DatabaseConnectionResponse, status_code=201)
-@router.get("/", response_model=List[DatabaseConnectionResponse])
-@router.get("/{connection_id}", response_model=DatabaseConnectionResponse)
-@router.put("/{connection_id}", response_model=DatabaseConnectionResponse)
-@router.delete("/{connection_id}")
-@router.post("/test", response_model=ConnectionTestResult)
-@router.get("/{connection_id}/schema", response_model=DatabaseSchemaResult)
-@router.get("/{connection_id}/databases")
+# Database Management
+@router.post("/connections", response_model=ConnectionResponse)
+@router.get("/connections", response_model=List[ConnectionResponse])
+@router.get("/connections/{id}/schema", response_model=SchemaResponse)
+
+# AI Query & Report Generation
+@router.post("/connections/{id}/query", response_model=QueryResponse)
+@router.post("/connections/{id}/report", response_model=ReportResponse)
+@router.get("/reports/{id}/download", response_model=DownloadResponse)
 ```
 
-### 3. **Service Layer** (`app/services/connection_service.py`)
+### 3. **Service Layer**
 
-**Responsibilities:**
-- Core business logic implementation
-- Database connection testing
-- Schema extraction and analysis
-- Data transformation and processing
-
-**Key Components:**
+**Core Services:**
 ```python
 class ConnectionService:
-    # CRUD Operations
-    async def create_connection(self, connection_data: DatabaseConnectionCreate)
-    async def get_all_connections(self) -> List[DatabaseConnectionResponse]
-    async def get_connection_by_id(self, connection_id: str)
-    async def update_connection(self, connection_id: str, update_data)
-    async def delete_connection(self, connection_id: str) -> bool
-    
-    # Testing & Analysis
-    async def test_connection(self, connection_id: str) -> ConnectionTestResult
-    async def get_database_schema(self, connection_id: str) -> DatabaseSchemaResult
-    async def discover_databases(self, connection_id: str)
-    
-    # Database-Specific Methods
-    async def _get_mongodb_schema(self, connection: DatabaseConnection)
-    async def _get_postgresql_schema(self, connection: DatabaseConnection)
-    async def _get_mysql_schema(self, connection: DatabaseConnection)
+    async def register_database(self, config: DatabaseConfig) -> str
+    async def extract_schema(self, connection_id: str) -> Dict
+    async def test_connection(self, connection_id: str) -> bool
+
+class BedrockService:
+    async def generate_query(self, schema: Dict, request: str) -> str
+    async def generate_report(self, data: Dict) -> bytes
+
+class ReportService:
+    async def create_pdf_report(self, data: Dict) -> bytes
+    async def create_csv_report(self, data: Dict) -> bytes
+    async def upload_to_s3(self, content: bytes) -> str
 ```
 
-### 4. **Model Layer** (`app/models/connection.py`)
+### 4. **Data Models** (`app/models/`)
 
-**Responsibilities:**
-- Define data structures
-- MongoDB document mapping
-- Serialization/deserialization
-- Data validation
-
-**Model Structure:**
+**Core Models:**
 ```python
-class DatabaseConnection:
-    def __init__(self, connection_name, database_type, host, port, 
-                 database_name, username, password, additional_notes=None):
-        self._id = None
-        self.connection_name = connection_name
-        self.database_type = database_type
-        # ... other fields
-        
-    def to_dict(self) -> Dict[str, Any]:
-        # Convert to MongoDB document
-        
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "DatabaseConnection":
-        # Create from MongoDB document
+class DatabaseConfig:
+    connection_name: str
+    database_type: str  # PostgreSQL, MySQL, MongoDB
+    host: str
+    port: int
+    database_name: str
+    username: str
+    password: str  # Encrypted in MongoDB
+    
+class QueryRequest:
+    natural_language_query: str
+    connection_id: str
+    format: str  # pdf, csv, json
+    
+class HealthReport:
+    patient_id: str
+    report_type: str
+    generated_at: datetime
+    data: Dict[str, Any]
+    
+class ReportResponse:
+    report_id: str
+    download_url: str
+    expires_at: datetime
 ```
 
-### 5. **Database Layer** (`app/db/session.py`)
+### 5. **Security & Compliance Layer**
 
-**Responsibilities:**
-- MongoDB connection management
-- Connection pooling
-- Health checks and monitoring
-- Error handling
+**Key Features:**
+- **No PHI Storage**: All patient data processed in-memory only
+- **Encryption**: All credentials and data encrypted in transit/rest
+- **IP Whitelisting**: Client databases restrict access to our Elastic IP
+- **Audit Logging**: All queries and report generations logged
+- **Query Validation**: Prevent destructive operations (DROP, DELETE, etc.)
 
-**Connection Management:**
+**Security Implementation:**
 ```python
-class DatabaseManager:
-    def __init__(self):
-        self.client: MongoClient = None
-        self.db: Database = None
-        self.connections_collection: Collection = None
-        self._connect()
-    
-    def _connect(self):
-        # Establish MongoDB connection with error handling
+class SecurityManager:
+    @staticmethod
+    def validate_query(query: str, schema: Dict) -> bool:
+        # Prevent SQL injection and destructive operations
         
-    def get_connections_collection(self) -> Collection:
-        # Return connection collection with availability check
+    @staticmethod
+    def encrypt_credentials(credentials: str) -> str:
+        # Encrypt database credentials before storage
         
-    def is_connected(self) -> bool:
-        # Health check method
+    @staticmethod
+    def audit_log(action: str, user_id: str, details: Dict):
+        # Log all PHI access for compliance
 ```
 
 ---
 
-## 🔄 Data Flow Architecture
+## 🔄 **AI-Powered Query Flow**
 
-### 1. **Connection Creation Flow**
-
-```
-Client Request → Router Validation → Service Logic → Model Creation → Database Storage
-     ↓              ↓                   ↓               ↓               ↓
-JSON Payload → Pydantic Schema → Business Rules → MongoDB Doc → Collection Insert
-```
-
-**Detailed Steps:**
-1. **Client** sends POST request with connection data
-2. **Router** validates request using Pydantic schema
-3. **Service** applies business logic and validation
-4. **Model** converts to MongoDB document format
-5. **Database** stores document and returns ID
-6. **Response** returns created connection with metadata
-
-### 2. **Schema Extraction Flow**
+### 1. **Natural Language to Query Flow**
 
 ```
-Client Request → Connection Lookup → Database Connection → Schema Analysis → Response
-     ↓                ↓                     ↓                   ↓             ↓
-GET /schema → Find Connection → Connect to Target DB → Analyze Structure → JSON Result
+Doctor Input → Schema Lookup → Bedrock Processing → Query Generation → Validation → Execution
+     ↓              ↓               ↓                  ↓               ↓           ↓
+"Patient P1234" → DB Schema → AI Analysis → SQL/NoSQL Query → Security Check → Live DB Query
 ```
 
-**MongoDB Schema Analysis:**
+**Example:**
 ```python
-# 1. Connect to Atlas cluster
-client = MongoClient(atlas_uri)
-
-# 2. Discover databases
-available_dbs = client.list_database_names()
-
-# 3. Auto-select database
-target_db = smart_database_selection(available_dbs, specified_db)
-
-# 4. Analyze collections
-for collection in db.list_collection_names():
-    # Sample documents
-    samples = collection.aggregate([{"$sample": {"size": 20}}])
-    
-    # Analyze field types
-    field_analysis = analyze_document_fields(samples)
-    
-    # Calculate statistics
-    field_frequency = calculate_field_presence(samples)
+# Input: "Extract patient P1234's last 6 months visits"
+# Schema: {patients: {id, name}, visits: {patient_id, date, diagnosis}}
+# Generated Query: SELECT * FROM visits WHERE patient_id = $1 AND date >= $2
+# Parameters: {patient_id: "P1234", date: "2024-03-01"}
 ```
 
-### 3. **Error Handling Flow**
+### 2. **Report Generation Flow**
 
 ```
-Error Occurrence → Service Handling → Router Catching → Response Formatting → Client
-       ↓               ↓                 ↓                    ↓               ↓
-Database Error → Try/Catch Block → HTTP Exception → JSON Error → Error Display
+Query Results → Data Processing → Bedrock Report Agent → Format Selection → Secure Delivery
+     ↓              ↓                    ↓                   ↓               ↓
+Patient Data → Structured JSON → AI Report Generation → PDF/CSV → S3 + Expiring URL
+```
+
+**Report Types:**
+- **Summary Report**: Key vitals, recent visits, medications
+- **Detailed Report**: Complete medical history with visualizations
+- **Custom Reports**: Based on specific doctor requirements
+
+### 3. **Security & Compliance Flow**
+
+```
+Every Request → Authentication → Authorization → Audit Logging → PHI Processing → Secure Cleanup
+     ↓              ↓               ↓               ↓               ↓              ↓
+User Login → Role Check → Permission Verify → Log Access → Process Data → Memory Clear
 ```
 
 ---
 
-## 🗃️ Database Architecture
+## 🗃️ **Database Architecture**
 
-### Primary Database (MongoDB Atlas)
-**Purpose**: Store connection metadata and configurations
+### **MongoDB Atlas (Metadata Store)**
+**Purpose**: Store connection configs and schemas (NO PHI data)
 
 **Collections:**
-- `database_connections`: Store connection configurations
-
-**Document Structure:**
 ```json
+// database_connections
 {
   "_id": ObjectId("..."),
-  "connection_name": "string",
-  "database_type": "string",
-  "host": "string",
-  "port": number,
-  "database_name": "string",
-  "username": "string",
-  "password": "string",
-  "additional_notes": "string",
+  "connection_name": "City Hospital Main DB",
+  "database_type": "PostgreSQL",
+  "host": "hospital-db.amazonaws.com",
+  "port": 5432,
+  "database_name": "patient_records",
+  "username_encrypted": "...",
+  "password_encrypted": "...",
+  "elastic_ip_whitelisted": true,
   "created_at": ISODate("..."),
-  "updated_at": ISODate("...")
+  "last_schema_update": ISODate("...")
+}
+
+// database_schemas  
+{
+  "_id": ObjectId("..."),
+  "connection_id": ObjectId("..."),
+  "schema": {
+    "tables": {
+      "patients": {
+        "columns": ["patient_id", "first_name", "last_name", "dob"],
+        "primary_key": "patient_id"
+      },
+      "visits": {
+        "columns": ["visit_id", "patient_id", "visit_date", "diagnosis"],
+        "foreign_keys": {"patient_id": "patients.patient_id"}
+      }
+    }
+  },
+  "extracted_at": ISODate("...")
+}
+
+// audit_logs (Compliance)
+{
+  "user_id": "dr_smith_123",
+  "action": "generate_report",
+  "connection_id": ObjectId("..."),
+  "patient_id": "P1234",  // Anonymized in logs
+  "timestamp": ISODate("..."),
+  "query_generated": "SELECT * FROM visits WHERE...",
+  "rows_returned": 15,
+  "report_format": "pdf"
 }
 ```
 
-### Target Databases (Analysis Targets)
-**Purpose**: Databases being analyzed for schema extraction
+### **Client Databases (Live Query Targets)**
+**Purpose**: Healthcare databases containing actual PHI
 
 **Supported Types:**
-- **MongoDB Atlas**: Collections and document analysis
-- **PostgreSQL**: Tables, views, and column analysis
-- **MySQL**: Tables and column analysis
+- **PostgreSQL**: Hospital management systems
+- **MySQL**: Clinic databases  
+- **MongoDB**: Modern healthcare platforms
+- **SQL Server**: Legacy hospital systems (future)
 
 ---
 
-## 🔐 Security Architecture
+## ☁️ **AWS Services Architecture**
 
-### 1. **Input Validation**
+### **Essential AWS Services**
+
+| Service | Purpose | Usage | Monthly Cost Est. |
+|---------|---------|-------|-------------------|
+| **EC2** | FastAPI hosting with Elastic IP | t3.medium instance | $24-40 |
+| **Bedrock** | AI query + report generation | Claude Sonnet API calls | $30-100 |
+| **S3** | Temporary report storage | PDF/CSV with TTL | $1-5 |
+| **MongoDB Atlas** | Metadata storage | Shared cluster | $9-25 |
+
+### **Optional Enhancements**
+
+| Service | Purpose | When Needed |
+|---------|---------|-------------|
+| **CloudWatch** | Monitoring & logging | Production deployment |
+| **KMS** | Credential encryption | Enhanced security |
+| **CloudTrail** | Compliance auditing | Regulatory requirements |
+
+---
+
+## 🔐 **Security Architecture**
+
+### 1. **Network Security**
 ```python
-# Pydantic schema validation
-class DatabaseConnectionCreate(BaseModel):
-    connection_name: str = Field(..., min_length=1, max_length=100)
-    database_type: str = Field(..., regex="^(MongoDB|PostgreSQL|MySQL)$")
-    host: str = Field(..., min_length=1)
-    port: int = Field(..., ge=1, le=65535)
-    # ... other validations
+# IP Whitelisting Configuration
+ALLOWED_CLIENT_IPS = [
+    "hospital-1.amazonaws.com",  # City Hospital
+    "clinic-db.azure.com",      # Medical Clinic
+    "healthcare-mongo.gcp.com"  # Health System
+]
+
+# Elastic IP Configuration  
+EC2_ELASTIC_IP = "52.123.45.67"  # Fixed IP for client whitelisting
 ```
 
-### 2. **Connection Security**
-- SSL support for PostgreSQL (Neon)
-- SRV connections for MongoDB Atlas
-- Connection timeouts to prevent hanging
-- Error message sanitization
+### 2. **Data Protection**
+- **Encryption at Rest**: All MongoDB data encrypted with AES-256
+- **Encryption in Transit**: TLS 1.3 for all connections
+- **Credential Security**: Database passwords encrypted with AWS KMS
+- **No PHI Storage**: Patient data never persisted to disk
 
-### 3. **Data Protection**
-- Environment variable configuration
-- No hardcoded credentials
-- Secure connection string handling
-- Input sanitization
-
----
-
-## ⚡ Performance Architecture
-
-### 1. **Async/Await Pattern**
+### 3. **Access Control**
 ```python
-# Non-blocking operations throughout
-async def get_database_schema(self, connection_id: str):
-    # Async database operations
-    doc = await self.collection.find_one({"_id": ObjectId(connection_id)})
-    return await self._analyze_schema(doc)
+class SecurityValidator:
+    @staticmethod 
+    def validate_query_safety(query: str) -> bool:
+        """Prevent destructive operations"""
+        forbidden = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER']
+        return not any(word in query.upper() for word in forbidden)
+    
+    @staticmethod
+    def sanitize_patient_data(data: Dict) -> Dict:
+        """Remove sensitive fields from logs"""
+        sensitive_fields = ['ssn', 'phone', 'address', 'email']
+        return {k: v for k, v in data.items() if k not in sensitive_fields}
 ```
 
-### 2. **Connection Management**
-- MongoDB connection pooling
-- Configurable timeouts
-- Connection reuse
-- Health check monitoring
+---
 
-### 3. **Schema Analysis Optimization**
-- Document sampling (max 20 docs per collection)
-- Nested analysis depth limiting (3 levels)
-- Smart database selection
-- Efficient field type inference
+## ⚡ **Performance Architecture**
 
-### 4. **Memory Management**
-- Streaming document analysis
-- Limited sample sizes
-- Connection cleanup
-- Garbage collection friendly
+### 1. **AI Processing Optimization**
+```python
+# Optimized Bedrock calls
+async def generate_query_and_report(schema: Dict, request: str) -> Dict:
+    """Single Bedrock call for both query generation and report template"""
+    
+    # Combine operations to reduce API calls
+    prompt = f"""
+    Schema: {schema}
+    Request: {request}
+    
+    Generate:
+    1. Safe SQL/NoSQL query
+    2. Report structure template
+    3. Data processing instructions
+    """
+    
+    # Single API call instead of multiple
+    return await bedrock_client.invoke_model(prompt)
+```
+
+### 2. **Database Performance** 
+- **Connection Pooling**: Reuse client database connections
+- **Query Timeout**: 30-second maximum execution time
+- **Result Limiting**: Maximum 10,000 rows per query
+- **Parallel Processing**: Handle multiple requests simultaneously
+
+### 3. **Memory Management**
+- **Streaming Processing**: Large datasets processed in chunks
+- **Automatic Cleanup**: PHI data cleared from memory after processing
+- **Resource Limits**: Maximum 512MB memory per request
+- **Garbage Collection**: Aggressive cleanup of temporary objects
+
+### 4. **Caching Strategy**
+```python
+# Schema caching to avoid repeated extraction
+@cache(expire=3600)  # 1 hour cache
+async def get_database_schema(connection_id: str) -> Dict:
+    """Cache schemas to improve response time"""
+    return await extract_fresh_schema(connection_id)
+
+# Query result caching for identical requests
+@cache(expire=300)   # 5 minute cache for identical queries
+async def execute_patient_query(query_hash: str) -> Dict:
+    """Cache non-PHI query results temporarily"""
+    return await execute_database_query(query_hash)
+```
 
 ---
 
-## 🔧 Configuration Architecture
+## 🔧 **Configuration Architecture**
 
-### 1. **Environment-Based Configuration**
+### 1. **Environment Configuration**
 ```python
 class Settings:
-    # App Configuration
-    APP_NAME: str = "PHA Database Connection Manager"
-    VERSION: str = "1.0.0"
+    # Application
+    APP_NAME: str = "AWS Health PHI Report Generator"
+    VERSION: str = "2.0.0"
+    
+    # AWS Configuration
+    AWS_REGION: str = os.getenv("AWS_REGION", "us-east-1")
+    BEDROCK_MODEL_ID: str = os.getenv("BEDROCK_MODEL_ID", "anthropic.claude-3-sonnet-20240229-v1:0")
+    S3_REPORT_BUCKET: str = os.getenv("S3_REPORT_BUCKET")
     
     # Database Configuration
     MONGODB_URL: str = os.getenv("MONGODB_URL")
-    DATABASE_NAME: str = os.getenv("DATABASE_NAME", "pha_connections")
+    DATABASE_NAME: str = os.getenv("DATABASE_NAME", "pha_metadata")
     
-    # Server Configuration
-    HOST: str = os.getenv("HOST", "0.0.0.0")
-    PORT: int = int(os.getenv("PORT", "8000"))
+    # Security Configuration
+    ELASTIC_IP: str = os.getenv("ELASTIC_IP")
+    ENCRYPTION_KEY: str = os.getenv("ENCRYPTION_KEY")
+    JWT_SECRET: str = os.getenv("JWT_SECRET")
     
     # Performance Configuration
-    DB_CONNECTION_TIMEOUT_MS: int = int(os.getenv("DB_CONNECTION_TIMEOUT_MS", "10000"))
+    QUERY_TIMEOUT_SECONDS: int = int(os.getenv("QUERY_TIMEOUT_SECONDS", "30"))
+    MAX_ROWS_PER_QUERY: int = int(os.getenv("MAX_ROWS_PER_QUERY", "10000"))
+    REPORT_EXPIRY_MINUTES: int = int(os.getenv("REPORT_EXPIRY_MINUTES", "5"))
 ```
 
-### 2. **Dependency Injection**
+### 2. **Service Dependencies**
 ```python
-def get_database_manager() -> DatabaseManager:
-    return db_manager
+# Dependency injection for services
+async def get_bedrock_service() -> BedrockService:
+    return BedrockService(
+        model_id=settings.BEDROCK_MODEL_ID,
+        region=settings.AWS_REGION
+    )
 
-def get_connection_service(db_manager: DatabaseManager = Depends(get_database_manager)):
-    return ConnectionService(db_manager)
+async def get_connection_service() -> ConnectionService:
+    return ConnectionService(
+        db_manager=get_database_manager(),
+        encryption_key=settings.ENCRYPTION_KEY
+    )
+
+async def get_report_service() -> ReportService:
+    return ReportService(
+        s3_bucket=settings.S3_REPORT_BUCKET,
+        expiry_minutes=settings.REPORT_EXPIRY_MINUTES
+    )
 ```
 
 ---
 
-## 📊 Monitoring Architecture
+## 📊 **Monitoring & Compliance**
 
-### 1. **Health Checks**
+### 1. **Health Monitoring**
 ```python
 @app.get("/health")
-async def health_check():
+async def comprehensive_health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
-        "database": db_manager.is_connected()
+        "services": {
+            "mongodb": await db_manager.is_connected(),
+            "bedrock": await bedrock_service.test_connection(),
+            "s3": await s3_service.test_bucket_access()
+        },
+        "elastic_ip": settings.ELASTIC_IP,
+        "active_connections": await get_active_client_connections()
     }
 ```
 
-### 2. **Logging Strategy**
-- Structured logging with timestamps
-- Error tracking and alerting
-- Performance monitoring
-- Debug information for development
-
-### 3. **Metrics Collection** (Future Enhancement)
-- Request/response times
-- Database connection statistics
-- Schema extraction performance
-- Error rates and types
-
----
-
-## 🚀 Scalability Architecture
-
-### 1. **Horizontal Scaling**
-- Stateless application design
-- Load balancer compatibility
-- Database connection pooling
-- Session-independent operations
-
-### 2. **Caching Strategy** (Future Enhancement)
+### 2. **Compliance Logging**
 ```python
-# Redis caching for schema results
-@cache(expire=3600)  # Cache for 1 hour
-async def get_database_schema(connection_id: str):
-    # Expensive schema analysis
-    pass
+class ComplianceLogger:
+    async def log_phi_access(self, event_data: Dict):
+        """HIPAA-compliant audit logging"""
+        audit_record = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "user_id": event_data["user_id"],
+            "action": event_data["action"],  # "query_generated", "report_created"
+            "connection_id": event_data["connection_id"],
+            "patient_id_hash": hashlib.sha256(event_data["patient_id"].encode()).hexdigest(),
+            "query_type": event_data.get("query_type"),
+            "rows_affected": event_data.get("rows_affected"),
+            "success": event_data["success"],
+            "error_message": event_data.get("error_message")
+        }
+        
+        # Store in separate audit collection
+        await audit_collection.insert_one(audit_record)
+        
+        # Also send to CloudWatch for monitoring
+        if settings.CLOUDWATCH_ENABLED:
+            await cloudwatch_client.put_log_events(audit_record)
 ```
 
-### 3. **Database Scaling**
-- MongoDB Atlas auto-scaling
-- Connection pool sizing
-- Query optimization
-- Index usage
+### 3. **Performance Metrics**
+- **AI Processing Time**: Bedrock API response times
+- **Database Query Performance**: Client database response times  
+- **Report Generation Speed**: PDF/CSV creation duration
+- **Memory Usage**: PHI data processing memory consumption
+- **Error Rates**: Failed queries, timeouts, validation errors
 
 ---
 
-## 🔄 Extension Architecture
+## 🚀 **Scalability Architecture**
+
+### 1. **Horizontal Scaling**
+- **Stateless Design**: No server-side session storage
+- **Load Balancer Ready**: Multiple EC2 instances behind ALB
+- **Auto Scaling**: Based on CPU and memory usage
+- **Database Connections**: Pooled and distributed
+
+### 2. **AI Processing Scaling**
+```python
+# Bedrock rate limiting and queue management
+class BedrockQueueManager:
+    def __init__(self, max_concurrent_requests: int = 10):
+        self.semaphore = asyncio.Semaphore(max_concurrent_requests)
+    
+    async def process_query(self, schema: Dict, request: str):
+        async with self.semaphore:
+            # Prevent overwhelming Bedrock API
+            return await bedrock_client.generate_query(schema, request)
+```
+
+### 3. **Cost Optimization**
+- **Smart Caching**: Reduce duplicate Bedrock API calls
+- **Efficient Queries**: Limit data retrieval to necessary fields only
+- **S3 Lifecycle**: Automatic deletion of expired reports
+- **Connection Reuse**: Maintain persistent client database connections
+
+---
+
+## 🔄 **Extension Architecture**
 
 ### 1. **Adding New Database Types**
 ```python
-# Extend service with new database type
-async def _get_oracle_schema(self, connection: DatabaseConnection):
-    # Oracle-specific schema extraction
-    pass
-
-# Register in main schema method
-if db_type == "oracle":
-    return await self._get_oracle_schema(connection)
+# Extensible database support
+class DatabaseConnector:
+    async def connect_oracle(self, config: DatabaseConfig):
+        """Oracle database support"""
+        import cx_Oracle
+        return cx_Oracle.connect(config.connection_string)
+    
+    async def connect_sqlserver(self, config: DatabaseConfig):
+        """SQL Server support"""
+        import pyodbc
+        return pyodbc.connect(config.connection_string)
+    
+    async def extract_oracle_schema(self, connection):
+        """Oracle-specific schema extraction"""
+        query = """
+        SELECT table_name, column_name, data_type 
+        FROM user_tab_columns 
+        ORDER BY table_name, column_id
+        """
+        return await connection.execute(query)
 ```
 
-### 2. **Plugin Architecture** (Future Enhancement)
-- Database driver plugins
-- Custom schema analyzers
-- Authentication providers
-- Export format plugins
+### 2. **Future Enhancements**
+- **Multi-format Reports**: Excel, Word, PowerPoint
+- **Real-time Dashboards**: Live patient monitoring
+- **Mobile App Integration**: React Native companion app
+- **Voice Processing**: "Alexa, generate patient P1234 report"
+- **FHIR Integration**: HL7 FHIR standard support
+- **Blockchain Audit**: Immutable compliance logging
 
 ---
 
-## 📋 Testing Architecture
+## 📋 **Testing Strategy**
 
-### 1. **Test Structure**
+### 1. **Test Coverage**
 ```
 tests/
-├── conftest.py              # Test configuration and fixtures
-├── test_connections.py      # API endpoint tests
-├── test_services.py         # Service layer tests
-├── test_models.py          # Model layer tests
-└── test_database.py        # Database layer tests
+├── unit/
+│   ├── test_bedrock_service.py    # AI query generation tests
+│   ├── test_security_validator.py # Security validation tests
+│   ├── test_report_generator.py   # Report creation tests
+├── integration/
+│   ├── test_end_to_end_flow.py   # Complete flow testing
+│   ├── test_database_connections.py # Client DB connectivity
+├── security/
+│   ├── test_sql_injection.py     # Security penetration tests
+│   ├── test_phi_compliance.py    # PHI handling compliance
+└── performance/
+    ├── test_load_testing.py      # High-volume request testing
+    └── test_memory_usage.py      # PHI memory cleanup testing
 ```
 
-### 2. **Test Types**
-- **Unit Tests**: Individual component testing
-- **Integration Tests**: Database and service interaction
-- **API Tests**: Full endpoint testing
-- **Performance Tests**: Load and stress testing
+### 2. **Compliance Testing**
+- **HIPAA Validation**: Ensure no PHI storage or logging
+- **Security Audits**: Regular penetration testing
+- **Performance Testing**: Handle 1000+ concurrent requests
+- **Disaster Recovery**: Database failover testing
 
 ---
 
+## 💰 **Cost Analysis**
+
+### **Monthly Operating Costs**
+| Component | Usage | Cost Range |
+|-----------|-------|------------|
+| **EC2 t3.medium** | 24/7 with Elastic IP | $30-45 |
+| **Bedrock API** | 10,000 queries/month | $50-150 |
+| **S3 Storage** | Temporary reports | $1-3 |
+| **MongoDB Atlas** | M10 cluster | $57 |
+| **Data Transfer** | Client DB connections | $10-25 |
+| **CloudWatch** | Monitoring & logs | $5-15 |
+| **Total Estimated** | | **$153-295/month** |
+
+### **Scaling Costs**
+- **High Volume**: +$200-500/month (50,000+ queries)
+- **Enterprise**: +$500-1000/month (multi-tenant, 24/7 support)
+
+---
+
+**System Overview**: Secure, AI-powered PHI report generation without data storage  
 **Last Updated**: September 2025  
-**Architecture Version**: 1.0.0  
-**Documentation Status**: Complete
+**Architecture Version**: 2.0.0  
+**Compliance Level**: HIPAA Ready
