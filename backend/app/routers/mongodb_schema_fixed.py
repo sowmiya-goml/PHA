@@ -78,6 +78,23 @@ class WebhookConfigResponse(WebhookConfig):
     updated_at: datetime = Field(..., description="Last update timestamp")
 
 
+class SchemaChangeNotification(BaseModel):
+    """Schema for schema change webhook notification."""
+    event_type: str = Field(..., description="Type of event (schema_change, collection_added, etc.)")
+    connection_id: str = Field(..., description="Database connection ID")
+    database_name: str = Field(..., description="Database name")
+    timestamp: datetime = Field(..., description="When the change occurred")
+    changes: List[Dict[str, Any]] = Field(..., description="List of schema changes detected")
+    old_schema_hash: Optional[str] = Field(None, description="Previous schema hash")
+    new_schema_hash: str = Field(..., description="New schema hash")
+
+
+class WebhookTestRequest(BaseModel):
+    """Schema for webhook test request."""
+    webhook_url: str = Field(..., description="Webhook URL to test")
+    test_payload: Dict[str, Any] = Field(default_factory=dict, description="Test payload to send")
+
+
 class DirectConnectionRequest(BaseModel):
     """Schema for direct MongoDB connection request."""
     host: str = Field(default="localhost", description="MongoDB host")
@@ -336,76 +353,284 @@ async def analyze_mongodb_schema(
         raise HTTPException(status_code=500, detail=f"Failed to analyze schema: {str(e)}")
 
 
-@router.post("/{connection_id}/webhooks", response_model=WebhookConfigResponse)
-async def create_webhook(
-    connection_id: str,
-    webhook_config: WebhookConfig,
-    service: ConnectionService = Depends(get_connection_service)
-):
-    """Create a webhook configuration for schema change notifications."""
+@router.post("/webhook/test")
+async def test_webhook(webhook_test: WebhookTestRequest):
+    """Test a webhook URL by sending a sample payload."""
     try:
-        # Verify connection exists
-        connection = await service.get_connection_by_id(connection_id)
-        if not connection:
-            raise HTTPException(status_code=404, detail="Connection not found")
+        import httpx
+        import re
         
-        if connection.database_type.lower() != "mongodb":
-            raise HTTPException(status_code=400, detail="Connection is not a MongoDB connection")
+        # Validate and fix URL
+        webhook_url = webhook_test.webhook_url.strip()
+        if not webhook_url.startswith(('http://', 'https://')):
+            webhook_url = 'https://' + webhook_url
         
-        # For now, just return a mock response
-        webhook_id = str(ObjectId())
-        webhook_response = WebhookConfigResponse(
-            id=webhook_id,
-            connection_id=connection_id,
-            url=webhook_config.url,
-            secret=webhook_config.secret,
-            events=webhook_config.events,
-            active=webhook_config.active,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
-        )
+        # Basic URL validation
+        url_pattern = re.compile(
+            r'^https?://'  # http:// or https://
+            r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain...
+            r'localhost|'  # localhost...
+            r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
+            r'(?::\d+)?'  # optional port
+            r'(?:/?|[/?]\S+)$', re.IGNORECASE)
         
-        logger.info(f"Created webhook {webhook_id} for connection {connection_id}")
-        return webhook_response
+        if not url_pattern.match(webhook_url):
+            raise HTTPException(status_code=400, detail=f"Invalid webhook URL format: {webhook_url}")
+        
+        # Create a sample schema change notification
+        test_payload = webhook_test.test_payload or {
+            "event_type": "schema_change",
+            "connection_id": "test_connection",
+            "database_name": "test_db",
+            "timestamp": datetime.utcnow().isoformat(),
+            "changes": [
+                {
+                    "collection": "users",
+                    "field": "email",
+                    "change_type": "added",
+                    "old_type": None,
+                    "new_type": "string"
+                }
+            ],
+            "old_schema_hash": "abc123",
+            "new_schema_hash": "def456"
+        }
+        
+        logger.info(f"Testing webhook URL: {webhook_url}")
+        
+        # Send test webhook with more specific error handling
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    webhook_url,
+                    json=test_payload,
+                    headers={"Content-Type": "application/json"}
+                )
+                
+            logger.info(f"Webhook test sent to {webhook_url}, response: {response.status_code}")
+            
+            return {
+                "status": "success",
+                "message": "Webhook test completed successfully",
+                "webhook_url": webhook_url,
+                "response_status": response.status_code,
+                "response_body": response.text[:500] if response.text else None,
+                "test_payload": test_payload
+            }
+            
+        except httpx.ConnectError as e:
+            error_msg = f"Connection failed: Cannot reach {webhook_url}. Check if the URL is correct and accessible."
+            logger.error(f"Webhook connection error: {str(e)}")
+            return {
+                "status": "error",
+                "message": error_msg,
+                "webhook_url": webhook_url,
+                "error_type": "connection_error",
+                "details": str(e)
+            }
+            
+        except httpx.TimeoutException as e:
+            error_msg = f"Request timeout: {webhook_url} took too long to respond."
+            logger.error(f"Webhook timeout error: {str(e)}")
+            return {
+                "status": "error",
+                "message": error_msg,
+                "webhook_url": webhook_url,
+                "error_type": "timeout_error"
+            }
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error creating webhook: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to create webhook: {str(e)}")
+        logger.error(f"Webhook test failed: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Webhook test failed: {str(e)}",
+            "webhook_url": webhook_test.webhook_url,
+            "error_type": "general_error"
+        }
 
 
-@router.get("/{connection_id}/webhooks", response_model=List[WebhookConfigResponse])
-async def list_webhooks(
-    connection_id: str,
-    service: ConnectionService = Depends(get_connection_service)
-):
-    """List all webhook configurations for a connection."""
+@router.post("/webhook/notify")
+async def send_schema_change_notification(notification: SchemaChangeNotification, webhook_url: str):
+    """Send a schema change notification to a webhook URL."""
     try:
-        # Verify connection exists
-        connection = await service.get_connection_by_id(connection_id)
-        if not connection:
-            raise HTTPException(status_code=404, detail="Connection not found")
+        import httpx
+        import re
         
-        # For now, return empty list
-        return []
+        # Validate and fix URL
+        webhook_url = webhook_url.strip()
+        if not webhook_url.startswith(('http://', 'https://')):
+            webhook_url = 'https://' + webhook_url
+        
+        # Basic URL validation
+        url_pattern = re.compile(
+            r'^https?://'  # http:// or https://
+            r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain...
+            r'localhost|'  # localhost...
+            r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
+            r'(?::\d+)?'  # optional port
+            r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+        
+        if not url_pattern.match(webhook_url):
+            raise HTTPException(status_code=400, detail=f"Invalid webhook URL format: {webhook_url}")
+        
+        # Prepare the payload
+        payload = notification.dict()
+        payload["timestamp"] = payload["timestamp"].isoformat() if isinstance(payload["timestamp"], datetime) else payload["timestamp"]
+        
+        logger.info(f"Sending notification to webhook: {webhook_url}")
+        
+        # Send webhook notification with better error handling
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    webhook_url,
+                    json=payload,
+                    headers={"Content-Type": "application/json"}
+                )
+                
+            logger.info(f"Schema change notification sent to {webhook_url}, response: {response.status_code}")
+            
+            return {
+                "status": "success",
+                "message": "Notification sent successfully",
+                "webhook_url": webhook_url,
+                "response_status": response.status_code,
+                "notification_id": str(ObjectId())
+            }
+            
+        except httpx.ConnectError as e:
+            error_msg = f"Connection failed: Cannot reach {webhook_url}. Check if the URL is correct and accessible."
+            logger.error(f"Webhook connection error: {str(e)}")
+            return {
+                "status": "error",
+                "message": error_msg,
+                "webhook_url": webhook_url,
+                "error_type": "connection_error",
+                "details": str(e)
+            }
+            
+        except httpx.TimeoutException as e:
+            error_msg = f"Request timeout: {webhook_url} took too long to respond."
+            logger.error(f"Webhook timeout error: {str(e)}")
+            return {
+                "status": "error",
+                "message": error_msg,
+                "webhook_url": webhook_url,
+                "error_type": "timeout_error"
+            }
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error listing webhooks: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to list webhooks: {str(e)}")
+        logger.error(f"Failed to send notification: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Failed to send notification: {str(e)}",
+            "webhook_url": webhook_url,
+            "error_type": "general_error"
+        }
+
+
+@router.post("/schema/compare")
+async def compare_schemas(
+    request_data: DirectConnectionRequest,
+    previous_schema_hash: Optional[str] = None
+):
+    """Compare current schema with a previous version and detect changes."""
+    try:
+        # Analyze current schema
+        current_result = await analyze_mongodb_direct(request_data)
+        
+        # Handle both dict and Pydantic model responses
+        if hasattr(current_result, 'dict'):
+            # It's a Pydantic model
+            schema_dict = current_result.dict()
+        else:
+            # It's already a dictionary
+            schema_dict = current_result
+        
+        # Generate schema hash
+        schema_content = json.dumps(schema_dict, sort_keys=True, default=str)
+        current_hash = hashlib.sha256(schema_content.encode()).hexdigest()
+        
+        # If no previous hash provided, just return current schema with hash
+        if not previous_schema_hash:
+            return {
+                "status": "success",
+                "message": "Current schema analyzed",
+                "schema_hash": current_hash,
+                "schema": schema_dict,
+                "changes_detected": False
+            }
+        
+        # Compare hashes
+        changes_detected = current_hash != previous_schema_hash
+        
+        result = {
+            "status": "success",
+            "message": "Schema comparison completed",
+            "previous_hash": previous_schema_hash,
+            "current_hash": current_hash,
+            "changes_detected": changes_detected,
+            "schema": schema_dict
+        }
+        
+        if changes_detected:
+            result["changes"] = [
+                {
+                    "type": "schema_modified",
+                    "description": "Schema structure has changed",
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            ]
+            logger.info(f"Schema changes detected for database {request_data.database_name}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Schema comparison failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Schema comparison failed: {str(e)}")
 
 
 @router.post("/webhook-receiver")
 async def webhook_receiver(request: Request):
-    """Sample webhook receiver endpoint for testing."""
+    """Webhook receiver endpoint for testing incoming webhook notifications."""
     try:
-        payload = await request.json()
-        logger.info(f"Received webhook: {payload}")
+        content_type = request.headers.get("content-type", "")
+        body = await request.body()
         
-        return {"status": "received", "message": "Webhook processed successfully"}
+        if not body:
+            return {"status": "received", "message": "Empty webhook received", "timestamp": datetime.utcnow()}
+        
+        if content_type.startswith("application/json"):
+            payload = await request.json()
+            logger.info(f"Webhook received: {payload}")
+            
+            # Process the webhook payload
+            event_type = payload.get("event_type", "unknown")
+            connection_id = payload.get("connection_id", "unknown")
+            
+            return {
+                "status": "received", 
+                "message": f"Webhook processed successfully for {event_type} on {connection_id}",
+                "event_type": event_type,
+                "connection_id": connection_id,
+                "received_at": datetime.utcnow(),
+                "payload": payload
+            }
+        else:
+            body_text = body.decode('utf-8') if body else ""
+            logger.info(f"Non-JSON webhook received: {body_text}")
+            return {
+                "status": "received", 
+                "message": "Non-JSON webhook processed",
+                "content_type": content_type,
+                "body": body_text,
+                "received_at": datetime.utcnow()
+            }
         
     except Exception as e:
-        logger.error(f"Error processing webhook: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to process webhook")
+        logger.error(f"Webhook processing failed: {str(e)}")
+        return {"status": "error", "message": f"Webhook processing failed: {str(e)}", "timestamp": datetime.utcnow()}
