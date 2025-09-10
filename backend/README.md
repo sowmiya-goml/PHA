@@ -1,53 +1,76 @@
-# PHA Database Connection Manager
+# AWS Health PHI Report Generator
 
-A production-ready FastAPI-based backend service for managing database connections with advanced schema extraction capabilities. Supports MongoDB Atlas, PostgreSQL (with Neon cloud), and MySQL databases.
+🏥 **AI-powered healthcare report generation system** that securely connects to client databases, extracts schemas, and generates personalized health reports using AWS Bedrock - **without storing any PHI data**.
 
-## 🚀 Features
+## 🎯 **System Overview**
 
-### Core Functionality
-- **Database Connection Management**: Complete CRUD operations for database connections
-- **Multi-Database Support**: MongoDB Atlas, PostgreSQL, MySQL with SSL support
-- **Connection Testing**: Validate connections before storing
-- **Advanced Schema Extraction**: Analyze database structures, collections, tables, and field types
-- **RESTful API**: 7 comprehensive endpoints with automatic OpenAPI documentation
-- **Smart Discovery**: Auto-detect available databases and collections without hardcoded assumptions
+Our system enables healthcare providers to generate comprehensive patient reports through natural language queries while maintaining strict HIPAA compliance and data security.
 
-### Database-Specific Features
+### **Key Value Proposition**
+- 🤖 **AI-Powered**: Convert plain English to SQL/NoSQL queries using AWS Bedrock
+- 🔒 **Zero PHI Storage**: All patient data processed in-memory only
+- ⚡ **Real-time Processing**: Live database queries with instant report generation
+- 🌐 **Multi-Database Support**: PostgreSQL, MySQL, MongoDB compatibility
+- 📊 **Professional Reports**: PDF/CSV output with medical visualizations
+- 🛡️ **Enterprise Security**: IP whitelisting, encryption, audit logging
 
-#### MongoDB Atlas
-- ✅ **SRV Connection Support**: Native Atlas cluster connections
-- ✅ **Collection Analysis**: Document sampling and field type inference
-- ✅ **Nested Structure Support**: Analyze nested objects and arrays up to 3 levels
-- ✅ **Dynamic Database Discovery**: Auto-select best database when target doesn't exist
-- ✅ **Field Frequency Analysis**: Show field presence across document samples
-- ✅ **MongoDB-Specific Types**: ObjectId, arrays, nested objects, dates
+## 🚀 **Core Features**
 
-#### PostgreSQL
-- ✅ **SSL Support**: Full Neon cloud database support with SSL connections
-- ✅ **Comprehensive Schema**: Tables, views, columns, data types, constraints
-- ✅ **Row Count Analysis**: Accurate table statistics
-- ✅ **Detailed Field Info**: Column types, nullability, defaults, character lengths
+### **🔄 Complete Workflow**
+1. **Database Registration** - Healthcare clients register their database connections
+2. **Schema Extraction** - Automated schema analysis and metadata storage  
+3. **Natural Language Processing** - *"Extract patient P1234's visits from last 6 months"*
+4. **AI Query Generation** - AWS Bedrock converts requests to safe SQL/NoSQL queries
+5. **Live Data Retrieval** - Real-time execution against client databases
+6. **Health Report Creation** - AI-generated PDF/CSV reports with medical insights
+7. **Secure Delivery** - Temporary S3 storage with expiring download links
 
-#### MySQL
-- ✅ **Connection Framework**: Ready for MySQL database connections
-- ✅ **Schema Extraction**: Basic table and column analysis support
+### **🎯 AI-Powered Query Generation**
+- ✅ **Natural Language Input**: Plain English medical queries
+- ✅ **Schema-Aware Processing**: AI understands database structure
+- ✅ **Safety Validation**: Prevents destructive operations (DROP, DELETE)
+- ✅ **Parameterized Queries**: SQL injection prevention
+- ✅ **Multi-Database Support**: Generates SQL, NoSQL, and custom queries
 
-## 📁 Project Structure
+### **📋 Report Generation Capabilities**  
+- ✅ **Medical Summaries**: Patient history, medications, diagnoses
+- ✅ **Visit Analytics**: Timeline analysis with key metrics
+- ✅ **Custom Reports**: Doctor-specific requirements and formats
+- ✅ **Data Visualizations**: Charts, graphs, and medical timelines
+- ✅ **Export Formats**: PDF (professional), CSV (data analysis)
+
+## 🏗️ **Architecture Overview**
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Healthcare    │───▶│    AWS Bedrock   │───▶│   Client DB     │
+│   Provider      │    │   (AI Queries)   │    │  (Live PHI)     │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+         │                        │                       │
+         ▼                        ▼                       ▼
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│  FastAPI (EC2)  │───▶│  MongoDB Atlas   │    │  Report Gen     │
+│ Fixed Elastic IP│    │ (Schema Only)    │    │  (PDF/CSV)      │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+```
+
+## 📁 **Project Structure**
 
 ```
 backend/
 ├── app/                          # Main application package
-│   ├── __init__.py
 │   ├── main.py                   # FastAPI application entry point
 │   ├── core/                     # Core configurations
-│   │   ├── __init__.py
-│   │   └── config.py            # Application settings and environment variables
+│   │   └── config.py            # AWS, DB, and security settings
 │   ├── routers/                  # API route handlers
-│   │   ├── __init__.py
-│   │   └── connections.py       # Database connection REST endpoints
+│   │   ├── connections.py       # Database connection management
+│   │   ├── queries.py           # AI query generation endpoints
+│   │   └── reports.py           # Health report generation
 │   ├── services/                 # Business logic layer
-│   │   ├── __init__.py
-│   │   └── connection_service.py # Core business logic (850+ lines)
+│   │   ├── connection_service.py # Database connection management
+│   │   ├── bedrock_service.py   # AWS Bedrock AI integration
+│   │   ├── query_service.py     # Live database query execution
+│   │   └── report_service.py    # PDF/CSV report generation
 │   ├── models/                   # Data models
 │   │   ├── __init__.py
 │   │   └── connection.py        # MongoDB document models
