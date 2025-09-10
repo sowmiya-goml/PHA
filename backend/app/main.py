@@ -2,9 +2,8 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
 from app.core.config import settings
-from app.routers import connections, fhir_connections
+from app.routers import connections, fhir_connections, mongodb_schema_fixed as mongodb_schema
 from app.utils.helpers import setup_logging
 
 # Setup logging
@@ -31,6 +30,7 @@ app.add_middleware(
 # Include routers
 app.include_router(connections.router, prefix="/api/v1")
 app.include_router(fhir_connections.router)
+app.include_router(mongodb_schema.router, prefix="/api/v1")
 
 
 @app.get("/")
