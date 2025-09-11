@@ -22,6 +22,11 @@ router = APIRouter(
 
 def get_connection_service(db_manager: DatabaseManager = Depends(get_database_manager)) -> ConnectionService:
     """Dependency to get connection service."""
+    if not db_manager.is_connected():
+        raise HTTPException(
+            status_code=503,
+            detail="Database service unavailable. Please check MongoDB connection."
+        )
     return ConnectionService(db_manager)
 
 
@@ -129,7 +134,35 @@ async def get_database_schema(
     connection_id: str,
     service: ConnectionService = Depends(get_connection_service)
 ):
-    """Get the schema of a database connection."""
+    """
+    Get the schema of a database connection with unified multi-database support.
+    
+    **Supported Database Types:**
+    - PostgreSQL / Aurora PostgreSQL
+    - MySQL / Aurora MySQL  
+    - Oracle Database
+    - Microsoft SQL Server
+    - MongoDB
+    
+    **Returns:**
+    - **tables**: List of tables/collections with columns and metadata
+    - **unified_schema**: Consistent JSON format across all database types
+    - **database_info**: Version, connection details, extraction timestamp
+    - **summary**: Statistics (table count, column count, total rows)
+    
+    **Unified Schema Format:**
+    The response includes a `unified_schema` field with consistent structure
+    optimized for AI query generation and database-agnostic processing.
+    
+    **Example Usage:**
+    ```
+    GET /api/v1/connections/507f1f77bcf86cd799439011/schema
+    ```
+    
+    **AI Integration Ready:**
+    Use the `unified_schema.database_info.type` and `unified_schema.tables` 
+    for AWS Bedrock query generation.
+    """
     try:
         return await service.get_database_schema(connection_id)
     except RuntimeError as e:

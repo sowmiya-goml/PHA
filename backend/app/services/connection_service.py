@@ -15,6 +15,7 @@ from app.schemas.connection import (
     DatabaseField
 )
 from app.db.session import DatabaseManager
+from app.services.schema_extraction_service import DatabaseSchemaExtractor
 
 
 class ConnectionService:
@@ -22,6 +23,7 @@ class ConnectionService:
     
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
+        self.schema_extractor = DatabaseSchemaExtractor()
     
     async def create_connection(self, connection_data: DatabaseConnectionCreate) -> DatabaseConnectionResponse:
         """Create a new database connection."""
@@ -31,12 +33,14 @@ class ConnectionService:
         connection = DatabaseConnection(
             connection_name=connection_data.connection_name,
             database_type=connection_data.database_type,
+            connection_string=connection_data.connection_string,
+            additional_notes=connection_data.additional_notes,
+            # Legacy fields for backward compatibility
             host=connection_data.host,
             port=connection_data.port,
             database_name=connection_data.database_name,
             username=connection_data.username,
-            password=connection_data.password,
-            additional_notes=connection_data.additional_notes
+            password=connection_data.password
         )
         
         # Insert into database
@@ -48,12 +52,14 @@ class ConnectionService:
             id=str(connection._id),
             connection_name=connection.connection_name,
             database_type=connection.database_type,
+            connection_string=connection.connection_string,
+            additional_notes=connection.additional_notes,
+            # Legacy fields
             host=connection.host,
             port=connection.port,
             database_name=connection.database_name,
             username=connection.username,
             password=connection.password,
-            additional_notes=connection.additional_notes,
             created_at=connection.created_at,
             updated_at=connection.updated_at
         )
@@ -69,12 +75,14 @@ class ConnectionService:
                 id=str(connection._id),
                 connection_name=connection.connection_name,
                 database_type=connection.database_type,
+                connection_string=connection.connection_string,
+                additional_notes=connection.additional_notes,
+                # Legacy fields
                 host=connection.host,
                 port=connection.port,
                 database_name=connection.database_name,
                 username=connection.username,
                 password=connection.password,
-                additional_notes=connection.additional_notes,
                 created_at=connection.created_at,
                 updated_at=connection.updated_at
             ))
@@ -95,12 +103,14 @@ class ConnectionService:
                 id=str(connection._id),
                 connection_name=connection.connection_name,
                 database_type=connection.database_type,
+                connection_string=connection.connection_string,
+                additional_notes=connection.additional_notes,
+                # Legacy fields
                 host=connection.host,
                 port=connection.port,
                 database_name=connection.database_name,
                 username=connection.username,
                 password=connection.password,
-                additional_notes=connection.additional_notes,
                 created_at=connection.created_at,
                 updated_at=connection.updated_at
             )
@@ -186,12 +196,16 @@ class ConnectionService:
         """Test the actual database connection based on type."""
         db_type = connection.database_type.lower()
         
-        if db_type == "mysql":
+        if db_type in ["mysql", "aurora-mysql"]:
             return await self._test_mysql_connection(connection)
-        elif db_type == "postgresql":
+        elif db_type in ["postgresql", "aurora-postgresql"]:
             return await self._test_postgresql_connection(connection)
         elif db_type == "mongodb":
             return await self._test_mongodb_connection(connection)
+        elif db_type in ["oracle", "oracle-db"]:
+            return await self._test_oracle_connection(connection)
+        elif db_type in ["sql-server", "mssql"]:
+            return await self._test_sqlserver_connection(connection)
         else:
             return ConnectionTestResult(
                 status="info",
@@ -296,8 +310,48 @@ class ConnectionService:
                 message=f"MongoDB connection failed: {str(e)}"
             )
 
+    async def _test_oracle_connection(self, connection: DatabaseConnection) -> ConnectionTestResult:
+        """Test Oracle database connection."""
+        try:
+            import cx_Oracle
+            
+            # Oracle connection string format
+            dsn = f"{connection.host}:{connection.port}/{connection.database_name}"
+            conn = cx_Oracle.connect(
+                user=connection.username,
+                password=connection.password,
+                dsn=dsn
+            )
+            conn.close()
+            return ConnectionTestResult(status="success", message="Oracle connection successful")
+        except ImportError:
+            return ConnectionTestResult(
+                status="error",
+                message="Oracle connector not installed. Run: pip install cx-Oracle"
+            )
+        except Exception as e:
+            return ConnectionTestResult(status="error", message=f"Oracle connection failed: {str(e)}")
+
+    async def _test_sqlserver_connection(self, connection: DatabaseConnection) -> ConnectionTestResult:
+        """Test SQL Server connection."""
+        try:
+            import pyodbc
+            
+            # SQL Server connection string
+            conn_str = f"DRIVER={{SQL Server}};SERVER={connection.host},{connection.port};DATABASE={connection.database_name};UID={connection.username};PWD={connection.password}"
+            conn = pyodbc.connect(conn_str)
+            conn.close()
+            return ConnectionTestResult(status="success", message="SQL Server connection successful")
+        except ImportError:
+            return ConnectionTestResult(
+                status="error",
+                message="SQL Server connector not installed. Run: pip install pyodbc"
+            )
+        except Exception as e:
+            return ConnectionTestResult(status="error", message=f"SQL Server connection failed: {str(e)}")
+
     async def get_database_schema(self, connection_id: str) -> DatabaseSchemaResult:
-        """Get the schema of a database connection."""
+        """Get the schema of a database connection using the enhanced multi-database extractor."""
         collection = self.db_manager.get_connections_collection()
         
         try:
@@ -309,7 +363,9 @@ class ConnectionService:
                 )
             
             connection = DatabaseConnection.from_dict(doc)
-            return await self._get_database_schema_by_type(connection)
+            
+            # Use the new schema extractor for unified multi-database support
+            return await self.schema_extractor.extract_schema(connection)
             
         except Exception as e:
             return DatabaseSchemaResult(
@@ -388,12 +444,16 @@ class ConnectionService:
         """Get database schema based on database type."""
         db_type = connection.database_type.lower()
         
-        if db_type == "mysql":
+        if db_type in ["mysql", "aurora-mysql"]:
             return await self._get_mysql_schema(connection)
-        elif db_type == "postgresql":
+        elif db_type in ["postgresql", "aurora-postgresql"]:
             return await self._get_postgresql_schema(connection)
         elif db_type == "mongodb":
             return await self._get_mongodb_schema(connection)
+        elif db_type in ["oracle", "oracle-db"]:
+            return await self._get_oracle_schema(connection)
+        elif db_type in ["sql-server", "mssql"]:
+            return await self._get_sqlserver_schema(connection)
         else:
             return DatabaseSchemaResult(
                 status="info",
@@ -840,4 +900,217 @@ class ConnectionService:
             return DatabaseSchemaResult(
                 status="error",
                 message=f"Failed to retrieve MySQL schema: {str(e)}"
+            )
+
+    async def _get_oracle_schema(self, connection: DatabaseConnection) -> DatabaseSchemaResult:
+        """Get Oracle database schema using Oracle data dictionary views."""
+        try:
+            import cx_Oracle
+            
+            # Oracle connection
+            dsn = f"{connection.host}:{connection.port}/{connection.database_name}"
+            conn = cx_Oracle.connect(
+                user=connection.username,
+                password=connection.password,
+                dsn=dsn
+            )
+            
+            cursor = conn.cursor()
+            
+            # Query Oracle data dictionary for tables and columns
+            # Using ALL_ views to get tables accessible to current user
+            cursor.execute("""
+                SELECT 
+                    t.table_name,
+                    CASE WHEN v.view_name IS NOT NULL THEN 'VIEW' ELSE 'TABLE' END as table_type,
+                    c.column_name,
+                    c.data_type,
+                    c.data_length,
+                    c.data_precision,
+                    c.data_scale,
+                    c.nullable,
+                    c.data_default,
+                    c.column_id
+                FROM all_tables t
+                LEFT JOIN all_tab_columns c ON t.table_name = c.table_name AND t.owner = c.owner
+                LEFT JOIN all_views v ON t.table_name = v.view_name AND t.owner = v.owner
+                WHERE t.owner = UPPER(:owner)
+                    OR t.owner = USER  -- Include tables owned by current user
+                ORDER BY t.table_name, c.column_id
+            """, {"owner": connection.username.upper()})
+            
+            results = cursor.fetchall()
+            
+            # Group by table
+            tables_dict = {}
+            for row in results:
+                table_name, table_type, column_name, data_type, data_length, data_precision, data_scale, nullable, data_default, column_id = row
+                
+                if table_name not in tables_dict:
+                    tables_dict[table_name] = {
+                        'type': table_type.lower(),
+                        'fields': []
+                    }
+                
+                if column_name:
+                    # Format Oracle data types
+                    formatted_type = data_type
+                    if data_type in ['VARCHAR2', 'CHAR', 'NVARCHAR2', 'NCHAR'] and data_length:
+                        formatted_type = f"{data_type}({data_length})"
+                    elif data_type == 'NUMBER' and data_precision:
+                        if data_scale and data_scale > 0:
+                            formatted_type = f"NUMBER({data_precision},{data_scale})"
+                        else:
+                            formatted_type = f"NUMBER({data_precision})"
+                    
+                    tables_dict[table_name]['fields'].append(DatabaseField(
+                        name=column_name,
+                        type=formatted_type,
+                        nullable=nullable == 'Y',
+                        default=str(data_default).strip() if data_default else None
+                    ))
+            
+            # Get row counts for tables (not views)
+            tables = []
+            for table_name, table_info in tables_dict.items():
+                row_count = None
+                if table_info['type'] == 'table':
+                    try:
+                        cursor.execute(f'SELECT COUNT(*) FROM "{table_name}"')
+                        row_count = cursor.fetchone()[0]
+                    except Exception:
+                        row_count = None
+                
+                tables.append(DatabaseTable(
+                    name=table_name,
+                    type=table_info['type'],
+                    fields=table_info['fields'],
+                    row_count=row_count
+                ))
+            
+            conn.close()
+            
+            return DatabaseSchemaResult(
+                status="success",
+                message=f"Retrieved Oracle schema for {len(tables)} tables/views",
+                database_type=connection.database_type,
+                database_name=connection.database_name,
+                tables=tables
+            )
+            
+        except ImportError:
+            return DatabaseSchemaResult(
+                status="error",
+                message="Oracle connector not installed. Run: pip install cx-Oracle"
+            )
+        except Exception as e:
+            return DatabaseSchemaResult(
+                status="error",
+                message=f"Failed to retrieve Oracle schema: {str(e)}"
+            )
+
+    async def _get_sqlserver_schema(self, connection: DatabaseConnection) -> DatabaseSchemaResult:
+        """Get SQL Server database schema using INFORMATION_SCHEMA views."""
+        try:
+            import pyodbc
+            
+            # SQL Server connection
+            conn_str = f"DRIVER={{SQL Server}};SERVER={connection.host},{connection.port};DATABASE={connection.database_name};UID={connection.username};PWD={connection.password}"
+            conn = pyodbc.connect(conn_str)
+            
+            cursor = conn.cursor()
+            
+            # Query INFORMATION_SCHEMA for tables and columns
+            cursor.execute("""
+                SELECT 
+                    t.TABLE_NAME,
+                    t.TABLE_TYPE,
+                    c.COLUMN_NAME,
+                    c.DATA_TYPE,
+                    c.CHARACTER_MAXIMUM_LENGTH,
+                    c.NUMERIC_PRECISION,
+                    c.NUMERIC_SCALE,
+                    c.IS_NULLABLE,
+                    c.COLUMN_DEFAULT,
+                    c.ORDINAL_POSITION
+                FROM INFORMATION_SCHEMA.TABLES t
+                LEFT JOIN INFORMATION_SCHEMA.COLUMNS c 
+                    ON t.TABLE_NAME = c.TABLE_NAME 
+                    AND t.TABLE_SCHEMA = c.TABLE_SCHEMA
+                WHERE t.TABLE_SCHEMA = 'dbo'  -- Default schema
+                    AND t.TABLE_TYPE IN ('BASE TABLE', 'VIEW')
+                ORDER BY t.TABLE_NAME, c.ORDINAL_POSITION
+            """)
+            
+            results = cursor.fetchall()
+            
+            # Group by table
+            tables_dict = {}
+            for row in results:
+                table_name, table_type, column_name, data_type, char_length, num_precision, num_scale, is_nullable, column_default, ordinal_pos = row
+                
+                if table_name not in tables_dict:
+                    tables_dict[table_name] = {
+                        'type': 'table' if table_type == 'BASE TABLE' else 'view',
+                        'fields': []
+                    }
+                
+                if column_name:
+                    # Format SQL Server data types
+                    formatted_type = data_type.upper()
+                    if data_type.upper() in ['VARCHAR', 'CHAR', 'NVARCHAR', 'NCHAR'] and char_length:
+                        if char_length == -1:  # MAX length
+                            formatted_type = f"{formatted_type}(MAX)"
+                        else:
+                            formatted_type = f"{formatted_type}({char_length})"
+                    elif data_type.upper() in ['DECIMAL', 'NUMERIC'] and num_precision:
+                        if num_scale and num_scale > 0:
+                            formatted_type = f"{formatted_type}({num_precision},{num_scale})"
+                        else:
+                            formatted_type = f"{formatted_type}({num_precision})"
+                    
+                    tables_dict[table_name]['fields'].append(DatabaseField(
+                        name=column_name,
+                        type=formatted_type,
+                        nullable=is_nullable == 'YES',
+                        default=str(column_default) if column_default else None
+                    ))
+            
+            # Get row counts for tables (not views)  
+            tables = []
+            for table_name, table_info in tables_dict.items():
+                row_count = None
+                if table_info['type'] == 'table':
+                    try:
+                        cursor.execute(f'SELECT COUNT(*) FROM [{table_name}]')
+                        row_count = cursor.fetchone()[0]
+                    except Exception:
+                        row_count = None
+                
+                tables.append(DatabaseTable(
+                    name=table_name,
+                    type=table_info['type'],
+                    fields=table_info['fields'],
+                    row_count=row_count
+                ))
+            
+            conn.close()
+            
+            return DatabaseSchemaResult(
+                status="success",
+                message=f"Retrieved SQL Server schema for {len(tables)} tables/views",
+                database_type=connection.database_type,
+                database_name=connection.database_name,
+                tables=tables
+            )
+            
+        except ImportError:
+            return DatabaseSchemaResult(
+                status="error",
+                message="SQL Server connector not installed. Run: pip install pyodbc"
+            )
+        except Exception as e:
+            return DatabaseSchemaResult(
+                status="error",
+                message=f"Failed to retrieve SQL Server schema: {str(e)}"
             )

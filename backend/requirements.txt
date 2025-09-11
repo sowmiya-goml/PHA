@@ -10,6 +10,26 @@ httpx==0.25.2
 pytest==7.4.3
 pytest-asyncio==0.21.1
 
-# Optional database connectors (install as needed)
-# mysql-connector-python==8.2.0
+# Database connectors for multi-database support
+# PostgreSQL (including Aurora PostgreSQL)
 psycopg2-binary==2.9.9
+
+# MySQL (including Aurora MySQL) 
+mysql-connector-python==8.2.0
+
+# Oracle Database
+cx-Oracle==8.3.0
+
+# SQL Server
+pyodbc==5.0.1
+
+# MongoDB (already included above)
+# pymongo==4.6.0
+
+# Optional: Database connection pooling
+# sqlalchemy==2.0.23
+
+# Note: Some connectors may require additional system dependencies:
+# - Oracle: Oracle Instant Client
+# - SQL Server: ODBC Driver for SQL Server
+# - For production, consider using environment-specific requirements files

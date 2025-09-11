@@ -9,12 +9,15 @@ class DatabaseConnectionBase(BaseModel):
     """Base schema for database connection."""
     connection_name: str = Field(..., description="Name for the database connection")
     database_type: str = Field(..., description="Type of database (MySQL, PostgreSQL, MongoDB, etc.)")
-    host: str = Field(..., description="Database host address")
-    port: int = Field(..., description="Database port number")
-    database_name: str = Field(..., description="Name of the database")
-    username: str = Field(..., description="Database username")
-    password: str = Field(..., description="Database password")
+    connection_string: str = Field(..., description="Database connection string URI")
     additional_notes: Optional[str] = Field(None, description="Additional notes or configuration")
+    
+    # Optional: Keep legacy fields for backward compatibility (can be removed later)
+    host: Optional[str] = Field(None, description="Database host address (legacy - use connection_string)")
+    port: Optional[int] = Field(None, description="Database port number (legacy - use connection_string)")
+    database_name: Optional[str] = Field(None, description="Name of the database (legacy - use connection_string)")
+    username: Optional[str] = Field(None, description="Database username (legacy - use connection_string)")
+    password: Optional[str] = Field(None, description="Database password (legacy - use connection_string)")
 
 
 class DatabaseConnectionCreate(DatabaseConnectionBase):
@@ -26,12 +29,14 @@ class DatabaseConnectionUpdate(BaseModel):
     """Schema for updating a database connection."""
     connection_name: Optional[str] = None
     database_type: Optional[str] = None
+    connection_string: Optional[str] = None
+    additional_notes: Optional[str] = None
+    # Legacy fields (optional for backward compatibility)
     host: Optional[str] = None
     port: Optional[int] = None
     database_name: Optional[str] = None
     username: Optional[str] = None
     password: Optional[str] = None
-    additional_notes: Optional[str] = None
 
 
 class DatabaseConnectionResponse(DatabaseConnectionBase):
@@ -79,5 +84,6 @@ class DatabaseSchemaResult(BaseModel):
     database_type: Optional[str] = Field(None, description="Type of database")
     database_name: Optional[str] = Field(None, description="Name of the database")
     tables: Optional[List[DatabaseTable]] = Field(None, description="List of tables/collections")
+    unified_schema: Optional[dict] = Field(None, description="Unified JSON schema format across all databases")
     
     model_config = ConfigDict(from_attributes=True)

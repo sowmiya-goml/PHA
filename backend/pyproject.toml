@@ -13,4 +13,7 @@ dependencies = [
     "requests>=2.31.0",
     "httpx>=0.28.1",
     "motor>=3.7.1",
+    "mysql-connector-python>=9.4.0",
+    "cx-oracle>=8.3.0",
+    "pyodbc>=5.2.0",
 ]

@@ -40,8 +40,9 @@ class Settings:
     MAX_ROWS_PER_QUERY: int = int(os.getenv("MAX_ROWS_PER_QUERY", "10000"))
     REPORT_EXPIRY_MINUTES: int = int(os.getenv("REPORT_EXPIRY_MINUTES", "5"))
     
-    # Database connection timeout
-    DB_CONNECTION_TIMEOUT_MS: int = int(os.getenv("DB_CONNECTION_TIMEOUT_MS", "5000"))
+    # Database connection timeout (increased for MongoDB Atlas)
+    DB_CONNECTION_TIMEOUT_MS: int = int(os.getenv("DB_CONNECTION_TIMEOUT_MS", "30000"))  # 30 seconds
+    DB_SERVER_SELECTION_TIMEOUT_MS: int = int(os.getenv("DB_SERVER_SELECTION_TIMEOUT_MS", "30000"))  # 30 seconds
     
     class Config:
         case_sensitive = True
@@ -50,24 +51,5 @@ class Settings:
 # Create a global settings instance
 settings = Settings()
 
-# Initialize MongoDB connection with better error handling
-try:
-    client = MongoClient(
-        settings.MONGODB_URL,
-        serverSelectionTimeoutMS=settings.DB_CONNECTION_TIMEOUT_MS
-    )
-    # Test the connection
-    client.admin.command('ping')
-    db = client[settings.DATABASE_NAME]
-    print(f"✅ Connected to MongoDB at {settings.MONGODB_URL}")
-except Exception as e:
-    print(f"⚠️ MongoDB connection failed: {e}")
-    print("🔄 Using in-memory storage for testing")
-    # Create a dummy db object for testing
-    client = None
-    db = None
-
-# Collections for the new AWS Health PHI Report Generator
-connections_collection = db["database_connections"] if db is not None else None
-schemas_collection = db["database_schemas"] if db is not None else None
-audit_logs_collection = db["audit_logs"] if db is not None else None
+# Note: MongoDB connection is now handled in session.py with proper async startup
+# This avoids blocking the application startup process

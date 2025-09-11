@@ -1,29 +1,77 @@
 """Database connection and session management."""
 
+import asyncio
 from pymongo import MongoClient
 from pymongo.database import Database
 from pymongo.collection import Collection
 from app.core.config import settings
 import logging
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
-    """MongoDB database connection manager."""
+    """MongoDB database connection manager with async support."""
     
     def __init__(self):
-        self.client: MongoClient = None
-        self.db: Database = None
-        self.connections_collection: Collection = None
-        self._connect()
-    
-    def _connect(self):
-        """Establish connection to MongoDB."""
+        self.client: Optional[MongoClient] = None
+        self.db: Optional[Database] = None
+        self.connections_collection: Optional[Collection] = None
+        self._connection_retries = 0
+        self._max_retries = 3
+        
+    async def connect(self):
+        """Establish connection to MongoDB with retry logic."""
+        for attempt in range(self._max_retries):
+            try:
+                logger.info(f"Attempting to connect to MongoDB (attempt {attempt + 1}/{self._max_retries})")
+                
+                self.client = MongoClient(
+                    settings.MONGODB_URL,
+                    serverSelectionTimeoutMS=settings.DB_SERVER_SELECTION_TIMEOUT_MS,
+                    connectTimeoutMS=settings.DB_CONNECTION_TIMEOUT_MS,
+                    socketTimeoutMS=settings.DB_CONNECTION_TIMEOUT_MS,
+                    retryWrites=True,
+                    retryReads=True,
+                    maxPoolSize=50,
+                    minPoolSize=5
+                )
+                
+                # Test connection with timeout
+                self.client.admin.command('ping')
+                
+                self.db = self.client[settings.DATABASE_NAME]
+                self.connections_collection = self.db.database_connections
+                
+                logger.info(f"✅ Connected to MongoDB at {settings.MONGODB_URL}")
+                self._connection_retries = 0
+                return True
+                
+            except Exception as e:
+                logger.warning(f"⚠️  MongoDB connection attempt {attempt + 1} failed: {e}")
+                self._connection_retries += 1
+                
+                if attempt < self._max_retries - 1:
+                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    logger.info(f"Retrying in {wait_time} seconds...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error("⚠️  All MongoDB connection attempts failed")
+                    logger.warning("Starting without database connection...")
+                    self.client = None
+                    self.db = None
+                    self.connections_collection = None
+                    return False
+        return False
+                
+    def _connect_sync(self):
+        """Synchronous connection method for backward compatibility."""
         try:
             self.client = MongoClient(
                 settings.MONGODB_URL,
-                serverSelectionTimeoutMS=settings.DB_CONNECTION_TIMEOUT_MS
+                serverSelectionTimeoutMS=settings.DB_SERVER_SELECTION_TIMEOUT_MS,
+                connectTimeoutMS=settings.DB_CONNECTION_TIMEOUT_MS
             )
             self.db = self.client[settings.DATABASE_NAME]
             self.connections_collection = self.db.database_connections
@@ -61,7 +109,7 @@ class DatabaseManager:
             self.client.close()
 
 
-# Global database manager instance
+# Global database manager instance - will be connected during app startup
 db_manager = DatabaseManager()
 
 
