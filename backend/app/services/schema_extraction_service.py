@@ -17,14 +17,18 @@ from app.schemas.connection import (
 class DatabaseSchemaExtractor:
     """Unified database schema extraction service supporting multiple database types."""
     
-    # Database type mappings for Aurora
+    # Database type mappings for Aurora and other variants
     DB_TYPE_MAPPINGS = {
         'aurora-mysql': 'mysql',
         'aurora-postgresql': 'postgresql', 
         'oracle-db': 'oracle',
         'sql-server': 'sqlserver',
         'mssql': 'sqlserver',
-        'mariadb': 'mysql'  # MariaDB uses MySQL connector
+        'mariadb': 'mysql',  # MariaDB uses MySQL connector
+        'mongodb atlas': 'mongodb',  # MongoDB Atlas
+        'mongo atlas': 'mongodb',   # Alternative naming
+        'atlas': 'mongodb',         # Short form
+        'mongo': 'mongodb'          # Generic MongoDB
     }
     
     def __init__(self):

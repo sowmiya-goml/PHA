@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Healthcare Query Generator Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; }
+        input, select, textarea { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        textarea { min-height: 100px; font-family: monospace; }
+        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .result { margin-top: 20px; padding: 15px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; }
+        .error { background: #f8d7da; border-color: #f5c6cb; color: #721c24; }
+        .success { background: #d4edda; border-color: #c3e6cb; color: #155724; }
+        .query-result { background: #e9ecef; padding: 10px; border-radius: 4px; font-family: monospace; word-wrap: break-word; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏥 Healthcare Query Generator Test</h1>
+        
+        <div class="form-group">
+            <label for="endpoint">API Endpoint:</label>
+            <select id="endpoint">
+                <option value="/api/v1/healthcare/generate-query">Healthcare Query (General)</option>
+                <option value="/api/v1/healthcare/generate-comprehensive">Comprehensive Query</option>
+                <option value="/api/v1/healthcare/generate-clinical">Clinical Query</option>
+                <option value="/api/v1/healthcare/generate-billing">Billing Query</option>
+                <option value="/api/v1/healthcare/schema-analysis">Schema Analysis</option>
+                <option value="/api/v1/healthcare/test-with-sample">Test with Sample</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="patientId">Patient ID:</label>
+            <input type="text" id="patientId" value="687b0aca-ca63-4926-800b-90d5e92e5a0a" placeholder="Enter patient ID">
+        </div>
+
+        <div class="form-group">
+            <label for="queryType">Query Type (for general healthcare endpoint):</label>
+            <select id="queryType">
+                <option value="comprehensive">Comprehensive</option>
+                <option value="clinical">Clinical</option>
+                <option value="billing">Billing</option>
+                <option value="basic">Basic</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="schema">Database Schema (JSON):</label>
+            <textarea id="schema" placeholder="Paste your healthcare database schema JSON here...">
+{
+  "status": "success",
+  "message": "Retrieved PostgreSQL schema: 44 tables/views from connection string",
+  "database_type": "PostgreSQL",
+  "database_name": "neondb",
+  "unified_schema": {
+    "database_info": {
+      "name": "neondb",
+      "type": "postgresql",
+      "version": "17.5"
+    },
+    "tables": [
+      {
+        "name": "patients",
+        "type": "table",
+        "row_count": 200,
+        "columns": [
+          {"name": "patient_id", "type": "uuid", "nullable": false, "primary_key": true},
+          {"name": "mrn", "type": "character varying(50)", "nullable": true},
+          {"name": "first_name", "type": "character varying(128)", "nullable": true},
+          {"name": "last_name", "type": "character varying(128)", "nullable": true},
+          {"name": "date_of_birth", "type": "date", "nullable": true},
+          {"name": "gender", "type": "character varying(20)", "nullable": true}
+        ]
+      },
+      {
+        "name": "encounters",
+        "type": "table",
+        "row_count": 400,
+        "columns": [
+          {"name": "encounter_id", "type": "uuid", "nullable": false, "primary_key": true},
+          {"name": "patient_id", "type": "uuid", "nullable": true},
+          {"name": "encounter_type", "type": "character varying(100)", "nullable": true},
+          {"name": "admission_datetime", "type": "timestamp without time zone", "nullable": true}
+        ]
+      },
+      {
+        "name": "diagnoses",
+        "type": "table",
+        "row_count": 800,
+        "columns": [
+          {"name": "diagnosis_id", "type": "uuid", "nullable": false, "primary_key": true},
+          {"name": "patient_id", "type": "uuid", "nullable": true},
+          {"name": "diagnosis_code", "type": "character varying(20)", "nullable": true},
+          {"name": "diagnosis_description", "type": "character varying(500)", "nullable": true}
+        ]
+      }
+    ]
+  }
+}
+            </textarea>
+        </div>
+
+        <button onclick="testEndpoint()">🚀 Generate Healthcare Query</button>
+        
+        <div id="result" class="result" style="display: none;"></div>
+    </div>
+
+    <script>
+        async function testEndpoint() {
+            const endpoint = document.getElementById('endpoint').value;
+            const patientId = document.getElementById('patientId').value;
+            const queryType = document.getElementById('queryType').value;
+            const schema = document.getElementById('schema').value;
+            const resultDiv = document.getElementById('result');
+
+            // Show loading
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.innerHTML = '⏳ Generating healthcare query...';
+
+            try {
+                // Build URL and parameters
+                const baseUrl = `http://localhost:8000${endpoint}`;
+                const params = new URLSearchParams();
+                
+                if (endpoint !== '/api/v1/healthcare/test-with-sample') {
+                    params.append('schema', schema);
+                    params.append('patient_id', patientId);
+                }
+                
+                if (endpoint === '/api/v1/healthcare/generate-query') {
+                    params.append('query_type', queryType);
+                }
+
+                const url = `${baseUrl}?${params.toString()}`;
+                console.log('Making request to:', url);
+
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                    }
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.className = 'result success';
+                    let html = '<h3>✅ Success!</h3>';
+                    
+                    if (data.generated_query) {
+                        html += `
+                            <h4>Generated SQL Query:</h4>
+                            <div class="query-result">${data.generated_query}</div>
+                            <h4>Details:</h4>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        `;
+                    } else {
+                        html += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+                    }
+                    
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `
+                        <h3>❌ Error ${response.status}</h3>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `
+                    <h3>❌ Request Failed</h3>
+                    <p>${error.message}</p>
+                    <p>Make sure the server is running on http://localhost:8000</p>
+                `;
+                console.error('Error:', error);
+            }
+        }
+
+        // Auto-fill with your complex schema on page load
+        window.onload = function() {
+            // The schema is already pre-filled in the textarea
+        };
+    </script>
+</body>
+</html>

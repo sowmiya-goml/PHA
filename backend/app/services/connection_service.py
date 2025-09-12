@@ -176,11 +176,26 @@ class ConnectionService:
         collection = self.db_manager.get_connections_collection()
         
         try:
-            doc = collection.find_one({"_id": ObjectId(connection_id)})
+            # Clean and validate the connection_id
+            cleaned_id = connection_id.strip()
+            
+            # Try to find by ObjectId first
+            doc = None
+            try:
+                if len(cleaned_id) == 24:  # Valid ObjectId length
+                    doc = collection.find_one({"_id": ObjectId(cleaned_id)})
+            except Exception:
+                # If ObjectId conversion fails, try string search
+                pass
+            
+            # If not found by ObjectId, try string search
+            if not doc:
+                doc = collection.find_one({"_id": cleaned_id})
+            
             if not doc:
                 return ConnectionTestResult(
                     status="error",
-                    message="Connection not found"
+                    message=f"Connection not found with ID: {cleaned_id}"
                 )
             
             connection = DatabaseConnection.from_dict(doc)
@@ -355,11 +370,35 @@ class ConnectionService:
         collection = self.db_manager.get_connections_collection()
         
         try:
-            doc = collection.find_one({"_id": ObjectId(connection_id)})
+            # Clean and validate the connection_id
+            cleaned_id = connection_id.strip()
+            
+            # Try to find by ObjectId first
+            doc = None
+            try:
+                if len(cleaned_id) == 24:  # Valid ObjectId length
+                    doc = collection.find_one({"_id": ObjectId(cleaned_id)})
+            except Exception:
+                # If ObjectId conversion fails, try string search
+                pass
+            
+            # If not found by ObjectId, try string search
+            if not doc:
+                doc = collection.find_one({"_id": cleaned_id})
+            
+            # If still not found, try other common ID patterns
+            if not doc:
+                doc = collection.find_one({
+                    "$or": [
+                        {"connection_name": cleaned_id},
+                        {"_id": cleaned_id}
+                    ]
+                })
+            
             if not doc:
                 return DatabaseSchemaResult(
                     status="error",
-                    message="Connection not found"
+                    message=f"Connection not found with ID: {cleaned_id}"
                 )
             
             connection = DatabaseConnection.from_dict(doc)
@@ -378,9 +417,24 @@ class ConnectionService:
         collection = self.db_manager.get_connections_collection()
         
         try:
-            doc = collection.find_one({"_id": ObjectId(connection_id)})
+            # Clean and validate the connection_id
+            cleaned_id = connection_id.strip()
+            
+            # Try to find by ObjectId first
+            doc = None
+            try:
+                if len(cleaned_id) == 24:  # Valid ObjectId length
+                    doc = collection.find_one({"_id": ObjectId(cleaned_id)})
+            except Exception:
+                # If ObjectId conversion fails, try string search
+                pass
+            
+            # If not found by ObjectId, try string search
             if not doc:
-                return {"status": "error", "message": "Connection not found"}
+                doc = collection.find_one({"_id": cleaned_id})
+            
+            if not doc:
+                return {"status": "error", "message": f"Connection not found with ID: {cleaned_id}"}
             
             connection = DatabaseConnection.from_dict(doc)
             

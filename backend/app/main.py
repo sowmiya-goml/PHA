@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.routers import connections
 from app.routers import mongodb_schema_fixed as mongodb_schema
 from app.routers import query_generator
+from app.routers import healthcare_query
 from app.utils.helpers import setup_logging
 from app.db.session import db_manager
 
@@ -55,6 +56,7 @@ app.add_middleware(
 app.include_router(connections.router, prefix="/api/v1")
 app.include_router(mongodb_schema.router, prefix="/api/v1")
 app.include_router(query_generator.router, prefix="/api/v1")
+app.include_router(healthcare_query.router, prefix="/api/v1")
 
 
 @app.get("/")

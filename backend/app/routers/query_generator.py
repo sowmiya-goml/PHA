@@ -1,30 +1,98 @@
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Request
 import os
 import json
 from dotenv import load_dotenv
 import boto3
 from botocore.exceptions import ClientError
+from typing import Union
 
 # Load environment variables from .env if present
 load_dotenv()
 
 router = APIRouter()
 
+@router.get("/debug-info")
+async def debug_info():
+    """
+    Simple debug endpoint with no parameters to test basic routing.
+    """
+    return {
+        "message": "Query generator router is working",
+        "timestamp": "2025-09-12",
+        "endpoints": [
+            "/generate-query",
+            "/test-patient-id", 
+            "/available-models",
+            "/test-model-access",
+            "/list-inference-profiles",
+            "/debug-info"
+        ]
+    }
+
+@router.get("/generate-query-simple")
+async def generate_patient_query_simple(
+    schema: str = Query(..., description="Database schema structure"),
+    patient_id: str = Query(..., description="Patient ID")
+):
+    """
+    Simplified version of query generator for debugging.
+    """
+    try:
+        return {
+            "message": "Parameters received successfully",
+            "schema_received": schema[:100] + "..." if len(schema) > 100 else schema,
+            "patient_id_received": patient_id,
+            "status": "success"
+        }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "error_type": str(type(e)),
+            "status": "failed"
+        }
+
+
 @router.get("/generate-query")
 async def generate_patient_query(
+    request: Request,
     schema: str = Query(..., description="Database schema structure"),
-    patient_id: str = Query(..., description="Patient ID to extract details for")
+    patient_id: Union[str, int] = Query(..., description="Patient ID to extract details for (accepts any format: integer, string, UUID, etc.)")
 ):
     """
     Generate a database query to extract all details of a particular patient.
     """
-    # Basic validation
-    if not schema or not schema.strip():
-        raise HTTPException(status_code=400, detail="Schema parameter is required and cannot be empty")
-    
-    if not patient_id or not patient_id.strip():
-        raise HTTPException(status_code=400, detail="Patient ID parameter is required and cannot be empty")
+    try:
+        # Debug: Log all query parameters
+        query_params = dict(request.query_params)
+        print(f"=== DEBUG: All query parameters ===")
+        print(f"Raw query params: {query_params}")
+        print(f"Schema received: {repr(schema)}")
+        print(f"Patient_id received: {repr(patient_id)}")
+        print(f"Patient_id type: {type(patient_id)}")
+        
+        # Basic validation - convert patient_id to string and trim whitespace
+        patient_id_str = str(patient_id).strip() if patient_id is not None else ""
+        
+        print(f"Patient_id after processing: '{patient_id_str}' (length: {len(patient_id_str)})")
+        
+        if not schema or not schema.strip():
+            print("ERROR: Schema validation failed")
+            raise HTTPException(status_code=400, detail="Schema parameter is required and cannot be empty")
+        
+        if not patient_id_str:
+            print("ERROR: Patient ID validation failed")
+            raise HTTPException(status_code=400, detail="Patient ID parameter is required and cannot be empty")
+        
+        print(f"=== Validation passed, proceeding with query generation ===")
+        
+    except HTTPException as he:
+        print(f"HTTP Exception caught: {he.detail}")
+        raise he
+    except Exception as e:
+        print(f"Unexpected error in parameter processing: {str(e)}")
+        print(f"Exception type: {type(e)}")
+        raise HTTPException(status_code=500, detail=f"Parameter processing error: {str(e)}")
     
     try:
         # Get AWS credentials from environment
@@ -44,14 +112,17 @@ async def generate_patient_query(
             aws_secret_access_key=aws_secret_key
         )
         
+        # Escape single quotes in patient_id to prevent SQL injection
+        escaped_patient_id = patient_id_str.replace("'", "''") if patient_id_str else ""
+        
         # Create prompt for Claude with specific formatting requirements
         prompt = f"""
-You are a database expert. Generate a SQL query to extract ALL details of patient with ID '{patient_id}' from the given database schema.
+You are a database expert. Generate a SQL query to extract ALL details of patient with ID '{escaped_patient_id}' from the given database schema.
 
 Database Schema:
 {schema}
 
-Patient ID: {patient_id}
+Patient ID: {escaped_patient_id}
 
 Requirements:
 - Return a complete SQL query that retrieves ALL patient information
@@ -68,8 +139,11 @@ Requirements:
 - When using SELECT *, consider potential column name conflicts and alias tables appropriately
 - Avoid ambiguous column references - always qualify columns with table aliases when joining multiple tables
 - Use meaningful alias names that clearly identify the table (e.g., patients AS pat, observations AS obs, immunizations AS imm)
+- Handle patient ID exactly as provided, including UUIDs, hyphens, and special characters
+- Always wrap the patient ID value in single quotes in the WHERE clause
+- For UUID format patient IDs like '687b0aca-ca63-4926-800b-90d5e92e5a0a', treat them as string values
 
-Example format: SELECT pat.*, obs.* FROM patients AS pat LEFT JOIN observations AS obs ON pat.patient_id = obs.patient_id WHERE pat.patient_id = '{patient_id}';
+Example format: SELECT pat.*, obs.* FROM patients AS pat LEFT JOIN observations AS obs ON pat.patient_id = obs.patient_id WHERE pat.patient_id = '{escaped_patient_id}';
 """
         
         # Use the correct inference profile ARN that you have access to
@@ -132,7 +206,7 @@ Example format: SELECT pat.*, obs.* FROM patients AS pat LEFT JOIN observations 
         
         return {
             "generated_query": generated_query,
-            "patient_id": patient_id,
+            "patient_id": patient_id_str,
             "model_used": model_used,
             "status": "success"
         }
@@ -300,3 +374,30 @@ async def list_inference_profiles():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list inference profiles: {str(e)}")
+
+
+@router.get("/test-patient-id")
+async def test_patient_id_parsing(
+    patient_id: Union[str, int] = Query(..., description="Test patient ID parsing")
+):
+    """
+    Simple test endpoint to debug patient ID parsing issues.
+    """
+    try:
+        patient_id_str = str(patient_id).strip() if patient_id is not None else ""
+        return {
+            "received_patient_id": patient_id,
+            "original_type": str(type(patient_id)),
+            "original_length": len(str(patient_id)),
+            "cleaned_patient_id": patient_id_str,
+            "cleaned_length": len(patient_id_str),
+            "contains_hyphens": "-" in patient_id_str,
+            "is_uuid_format": len(patient_id_str) == 36 and patient_id_str.count("-") == 4,
+            "has_trailing_spaces": str(patient_id) != patient_id_str,
+            "status": "success"
+        }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "status": "failed"
+        }
