@@ -310,8 +310,39 @@ class BedrockService:
         schema_info = self._extract_schema_info(schema_dict)
         
         base_requirements = """
+🚨 CRITICAL SQL OUTPUT FORMAT:
+- MANDATORY: Always output the SQL query as raw SQL, not as a string.
+- ABSOLUTELY FORBIDDEN: Do not include backslashes (\) to escape quotes anywhere in the query.
+- RESERVED KEYWORDS: If a reserved keyword is used as a table or column name, wrap it with the correct identifier quoting for the target database (e.g., "order" for PostgreSQL, `order` for MySQL, [order] for SQL Server).
+- FINAL REQUIREMENT: The final output must be a syntactically valid query that can run directly in the database client.
+
+🔥 EXAMPLES OF FORBIDDEN PATTERNS (DO NOT GENERATE THESE):
+❌ WRONG: LEFT JOIN \"order\" o ON...        (contains backslash)
+❌ WRONG: SELECT p.\"patient_id\"...          (contains backslash)
+❌ WRONG: FROM \"patients\" p...               (contains backslash)
+
+✅ CORRECT PATTERNS (GENERATE THESE INSTEAD):
+✅ RIGHT: LEFT JOIN "order" o ON...          (clean double quotes)
+✅ RIGHT: SELECT p."patient_id"...           (clean double quotes)
+✅ RIGHT: FROM "patients" p...               (clean double quotes)
+
+🚨 CRITICAL JOIN REQUIREMENTS:
+- BEFORE creating any JOIN: Check the actual column names in BOTH tables from the schema
+- NEVER assume foreign key column names exist without verifying them in the schema
+- Map child table *_id columns to parent table primary keys BY EXACT NAME MATCH
+- If a foreign key column doesn't exist in the schema, DO NOT create that JOIN
+- If multiple foreign keys point to the same parent table, create separate JOINs with different table aliases
+- Only use column names that actually exist in the provided schema
+
+🚨 JOIN VALIDATION PROCESS:
+1. Identify the primary table (usually the patient table)
+2. For each potential child table, check if it has a column that matches the primary table's primary key
+3. Only create JOIN if BOTH columns exist in the schema
+4. Use the EXACT column names from the schema (not assumed names)
+
 Requirements:
-- CRITICAL: Use ONLY the exact table names provided in the schema above - no other table names
+- CRITICAL: Use ONLY the exact table and column names provided in the schema above - verify each column exists before using it
+- Before creating any JOIN, verify that BOTH the foreign key and primary key columns exist in their respective tables
 - Return a complete, optimized SQL query that retrieves patient information
 - Use proper PostgreSQL syntax with correct keywords
 - Do NOT use line breaks, newline characters, backslashes, or forward slashes in the query
@@ -321,7 +352,7 @@ Requirements:
 - Always qualify columns with table aliases when joining multiple tables
 - Handle UUID patient IDs properly as string values in single quotes
 - Ensure efficient query performance with proper indexing considerations
-- VERIFY: All table names in your query must exist in the schema provided above
+- VERIFY: All table and column names in your query must exist in the schema provided above
 - IMPORTANT: For reserved keywords as table names (like "order", "user", "group"), wrap them in double quotes like "order", "user", "group"
 - IMPORTANT: Do not include any backslash or forward slash characters in your response
 - IMPORTANT: Use double quotes around table names that are SQL reserved words
@@ -535,47 +566,95 @@ CRITICAL: Use ONLY the exact collection names from the schema provided above.
         return prompt
     
     def _extract_schema_info(self, schema_dict: Dict) -> str:
-        """Extract and format schema information for the prompt."""
+        """Extract and format schema information for the prompt with detailed column information."""
         if "unified_schema" in schema_dict:
             # Handle unified schema format
             unified = schema_dict["unified_schema"]
             tables_info = []
+            foreign_key_info = []
             
             if "tables" in unified:
-                # Use ALL actual tables from the database (no hardcoded examples)
-                for table in unified["tables"]:  # Don't limit - use all tables
+                # Use ALL actual tables from the database
+                for table in unified["tables"]:
                     table_name = table.get("name", "")
                     columns = table.get("columns", [])
                     
-                    # Get key columns (showing more columns for better context)
-                    key_columns = []
-                    for col in columns[:15]:  # Show more columns for better context
-                        col_info = f"{col.get('name')} ({col.get('type')})"
+                    # Get ALL columns with their types and constraints
+                    column_details = []
+                    primary_keys = []
+                    foreign_key_candidates = []
+                    
+                    for col in columns:
+                        col_name = col.get('name')
+                        col_type = col.get('type')
+                        col_info = f"{col_name} ({col_type})"
+                        
                         if col.get('primary_key'):
                             col_info += " PK"
-                        key_columns.append(col_info)
+                            primary_keys.append(col_name)
+                        
+                        if col.get('nullable') == False:
+                            col_info += " NOT NULL"
+                        
+                        # Identify potential foreign keys by name pattern
+                        if col_name.endswith('_id') and col_name != 'patient_id':
+                            foreign_key_candidates.append(col_name)
+                        
+                        column_details.append(col_info)
                     
-                    tables_info.append(f"- {table_name}: {', '.join(key_columns)}")
+                    # Format table information
+                    tables_info.append(f"""
+TABLE: {table_name}
+  Columns: {', '.join(column_details)}
+  Primary Key(s): {', '.join(primary_keys) if primary_keys else 'None identified'}
+  Potential Foreign Keys: {', '.join(foreign_key_candidates) if foreign_key_candidates else 'None identified'}""")
             
-            # Use ONLY actual database tables - no hardcoded examples
+            # Get database type for proper quoting rules
+            db_type = unified.get('database_info', {}).get('type', 'postgresql').lower()
+            quoting_rules = self._get_quoting_rules(db_type)
+            
             schema_info = f"""
-Database Schema ({unified.get('database_info', {}).get('type', 'postgresql')}):
+Database Type: {db_type}
+QUOTING RULES FOR THIS DATABASE:
+{quoting_rules}
+
 Database: {unified.get('database_info', {}).get('name', 'unknown')}
 Total Tables: {len(unified.get('tables', []))}
 
-ACTUAL DATABASE TABLES (use these exact table names):
+🔍 DETAILED TABLE SCHEMA (verify column names before creating JOINs):
 {chr(10).join(tables_info)}
 
-IMPORTANT: Use ONLY the table names listed above. Do NOT use any other table names.
+🚨 IMPORTANT JOIN VALIDATION RULES:
+- Before creating any JOIN between tables, verify that BOTH the foreign key column and primary key column exist in the schema above
+- Common patterns: If table A has 'patient_id', it can JOIN to a 'patient' table's 'patient_id' primary key
+- If table B has 'encounter_id', it can JOIN to an 'encounter' table's 'encounter_id' primary key  
+- DO NOT assume column names - use only the exact column names listed above
+- If a foreign key relationship cannot be verified from the schema above, skip that JOIN
+
+🔗 JOIN CONSTRUCTION RULES:
+- Order JOINs logically: define each table alias before using it in subsequent JOIN conditions
+- Use correct foreign key relationships (primary key to foreign key matches based on actual column names)
+- Each JOIN must use the correct relationship columns from the schema provided above
+- Use LEFT JOIN to ensure all patient data is retrieved even if related tables have no matching records
 """
         else:
             # Handle raw schema format
             schema_info = f"""
 Database Schema:
-{str(schema_dict)[:3000]}  # Increased limit for more context
+{str(schema_dict)[:4000]}  # Show more schema context
 """
         
         return schema_info
+
+    def _get_quoting_rules(self, db_type: str) -> str:
+        """Get database-specific quoting rules."""
+        db_type_lower = db_type.lower()
+        if 'mysql' in db_type_lower or 'mariadb' in db_type_lower:
+            return "MySQL/MariaDB: Use backticks for reserved keywords: `order`, `user`, `table`\nExample: SELECT p.patient_id, o.`order_id` FROM patients p LEFT JOIN `order` o"
+        elif 'sql server' in db_type_lower or 'mssql' in db_type_lower:
+            return "SQL Server: Use brackets for reserved keywords: [order], [user], [table]\nExample: SELECT p.patient_id, o.[order_id] FROM patients p LEFT JOIN [order] o"
+        else:  # PostgreSQL default
+            return "PostgreSQL: Use double quotes for reserved keywords: \"order\", \"user\", \"table\"\nExample: SELECT p.patient_id, o.\"order_id\" FROM patients p LEFT JOIN \"order\" o"
     
     def _extract_mongodb_schema_info(self, schema_dict: Dict) -> str:
         """Extract and format MongoDB schema information for the prompt."""
@@ -658,25 +737,44 @@ MongoDB Database Schema:
             return 0
     
     def _clean_query(self, query: str) -> str:
-        """Clean and format the generated SQL query."""
-        # Remove line breaks and extra spaces
-        query = query.replace('\n', ' ').replace('\r', ' ')
+        """Ultra-aggressive cleaning to eliminate all escape characters."""
+        import re
         
-        # Remove backslashes that cause SQL syntax errors
+        # NUCLEAR APPROACH: Remove ALL backslashes first
         query = query.replace('\\', '')
         
-        # Remove multiple spaces and replace with single space
-        import re
+        # Method 1: Character-by-character filtering to remove any remaining backslashes
+        query = ''.join(char for char in query if char != '\\')
+        
+        # Method 2: Multiple replacement passes (in case some escape sequences remain)
+        for _ in range(5):  # Multiple passes to catch nested escapes
+            query = query.replace('\\', '')
+            query = query.replace('\\"', '"')  # Fix escaped quotes
+            query = query.replace("\\'", "'")  # Fix escaped single quotes
+            query = query.replace('\\`', '`')   # Fix escaped backticks (MySQL)
+            query = query.replace('\\[', '[')   # Fix escaped brackets (SQL Server)
+            query = query.replace('\\]', ']')
+        
+        # Method 3: Regex nuclear cleaning
+        query = re.sub(r'\\+', '', query)  # Remove any remaining backslashes
+        query = re.sub(r'\\"', '"', query)  # Fix any remaining escaped quotes
+        
+        # Target the specific \"order\" pattern that keeps appearing
+        query = re.sub(r'\\"order\\"', '"order"', query, flags=re.IGNORECASE)
+        query = re.sub(r'\\"([a-zA-Z_][a-zA-Z0-9_]*)\\"', r'"\1"', query)  # \"word\" -> "word"
+        
+        # Standard cleanup
+        query = query.replace('\n', ' ').replace('\r', ' ')
         query = re.sub(r'\s+', ' ', query).strip()
         
-        # Remove any markdown code block formatting
+        # Remove markdown formatting
         if query.startswith('```sql'):
             query = query.replace('```sql', '').replace('```', '').strip()
         elif query.startswith('```'):
             query = query.replace('```', '').strip()
         
-        # Final cleanup - remove any remaining backslashes
-        query = query.replace('\\', '')
+        # Final safety net - remove any character that could be a backslash
+        query = ''.join(char for char in query if ord(char) != 92)  # ASCII 92 is backslash
         
         return query
     
