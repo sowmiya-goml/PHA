@@ -1,7 +1,42 @@
-# Environment variables
+# Environment variables - Comprehensive patterns
 .env
+.env.*
+*.env
 .env.local
 .env.production
+.env.development
+.env.staging
+.env.test
+.env.testing
+.env.dev
+.env.prod
+.env.stage
+.env.example.local
+.env.sample.local
+.envrc
+.env-*
+env.json
+environment.json
+secrets.json
+config.json
+credentials.json
+
+# Certificate and key files
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+
+# Backup and temporary environment files
+*.env.bak
+*.env.backup
+*.env.orig
+*.env.tmp
+.env.backup*
+.env.bak*
 
 # Python cache files
 __pycache__/
