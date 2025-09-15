@@ -57,25 +57,6 @@ async def get_all_connections(
         raise HTTPException(status_code=500, detail=f"Failed to retrieve connections: {str(e)}")
 
 
-@router.get("/{connection_id}", response_model=DatabaseConnectionResponse)
-async def get_connection(
-    connection_id: str,
-    service: ConnectionService = Depends(get_connection_service)
-):
-    """Get a specific database connection by ID."""
-    try:
-        connection = await service.get_connection_by_id(connection_id)
-        if not connection:
-            raise HTTPException(status_code=404, detail="Connection not found")
-        return connection
-    except HTTPException:
-        raise
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid connection ID: {str(e)}")
-
-
 @router.put("/{connection_id}", response_model=DatabaseConnectionResponse)
 async def update_connection(
     connection_id: str,
@@ -169,17 +150,3 @@ async def get_database_schema(
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve database schema: {str(e)}")
-
-
-@router.get("/{connection_id}/databases")
-async def list_databases(
-    connection_id: str,
-    service: ConnectionService = Depends(get_connection_service)
-):
-    """List all available databases for a connection."""
-    try:
-        return await service.list_available_databases(connection_id)
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list databases: {str(e)}")
