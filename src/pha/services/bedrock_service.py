@@ -7,10 +7,255 @@ from botocore.exceptions import ClientError
 from datetime import datetime
 from typing import Dict, Any, Optional, Union
 from bson import ObjectId
+import re
 
 from pha.core.config import settings
 from pha.models.connection import DatabaseConnection
 from pha.schemas.connection import DatabaseConnectionResponse
+
+
+class QueryGenerationOptimizer:
+    """Enhanced query generation logic for different databases and scenarios."""
+    
+    def __init__(self):
+        self.database_specific_rules = {
+            'snowflake': {
+                'identifier_quotes': '"',
+                'string_quotes': "'",
+                'limit_syntax': 'LIMIT',
+                'case_sensitivity': 'preserve',
+                'reserved_words': ['ORDER', 'GROUP', 'USER', 'TABLE', 'SELECT', 'IS', 'IN', 'ON', 'START', 'END', 'DATE', 'TIME', 'TIMESTAMP', 'VALUE', 'TYPE', 'STATUS', 'DESCRIPTION', 'CODE', 'CLASS']
+            },
+            'postgresql': {
+                'identifier_quotes': '"',
+                'string_quotes': "'",
+                'limit_syntax': 'LIMIT',
+                'case_sensitivity': 'lower',
+                'reserved_words': ['ORDER', 'GROUP', 'USER', 'TABLE', 'SELECT', 'IS', 'IN', 'ON']
+            },
+            'mysql': {
+                'identifier_quotes': '`',
+                'string_quotes': "'",
+                'limit_syntax': 'LIMIT',
+                'case_sensitivity': 'preserve',
+                'reserved_words': ['ORDER', 'GROUP', 'USER', 'TABLE', 'SELECT', 'IS', 'IN', 'ON']
+            },
+            'sqlserver': {
+                'identifier_quotes': '[',
+                'string_quotes': "'",
+                'limit_syntax': 'TOP',
+                'case_sensitivity': 'preserve',
+                'reserved_words': ['ORDER', 'GROUP', 'USER', 'TABLE', 'SELECT', 'IS', 'IN', 'ON']
+            }
+        }
+    
+    def analyze_schema_relationships(self, schema_dict: Dict) -> Dict[str, Any]:
+        """Analyze schema to identify proper table relationships."""
+        tables = {}
+        
+        # Extract table information
+        unified_schema = schema_dict.get('unified_schema', {})
+        if isinstance(unified_schema, dict) and 'tables' in unified_schema:
+            schema_tables = unified_schema['tables']
+        else:
+            schema_tables = []
+        
+        # Build table information map
+        for table in schema_tables:
+            table_name = table.get('name', '')
+            if table_name:
+                tables[table_name.lower()] = {
+                    'name': table_name,
+                    'fields': table.get('fields', []),
+                    'primary_keys': [],
+                    'foreign_keys': []
+                }
+                
+                # Identify primary and foreign keys
+                for field in table.get('fields', []):
+                    field_name = field.get('name', '').lower()
+                    if field.get('primary_key', False):
+                        tables[table_name.lower()]['primary_keys'].append(field_name)
+                    
+                    # Common foreign key patterns
+                    if field_name.endswith('_id') and field_name != 'id':
+                        tables[table_name.lower()]['foreign_keys'].append({
+                            'column': field_name,
+                            'references_table': field_name.replace('_id', '').replace('patient', 'patients')
+                        })
+                    elif field_name == 'patient' and table_name.lower() != 'patients':
+                        tables[table_name.lower()]['foreign_keys'].append({
+                            'column': field_name,
+                            'references_table': 'patients'
+                        })
+        
+        # Identify core healthcare tables
+        core_tables = self._identify_core_tables(tables)
+        
+        return {
+            'tables': tables,
+            'core_tables': core_tables
+        }
+    
+    def _identify_core_tables(self, tables: Dict) -> Dict[str, str]:
+        """Identify core healthcare tables by name patterns."""
+        core_patterns = {
+            'patients': ['patient', 'person', 'individual'],
+            'encounters': ['encounter', 'visit', 'admission', 'episode'],
+            'conditions': ['condition', 'diagnosis', 'problem', 'disorder'],
+            'medications': ['medication', 'drug', 'prescription', 'medicine'],
+            'procedures': ['procedure', 'treatment', 'operation', 'intervention'],
+            'observations': ['observation', 'vital', 'lab', 'result', 'measurement'],
+            'organizations': ['organization', 'facility', 'provider', 'hospital'],
+            'practitioners': ['practitioner', 'physician', 'doctor', 'provider']
+        }
+        
+        core_tables = {}
+        for table_name in tables.keys():
+            for category, patterns in core_patterns.items():
+                if any(pattern in table_name for pattern in patterns):
+                    if category not in core_tables:  # Use first match
+                        core_tables[category] = tables[table_name]['name']
+                    break
+        
+        return core_tables
+    
+    def create_optimized_prompt(
+        self, 
+        schema_dict: Dict, 
+        patient_id: str, 
+        query_type: str,
+        database_type: str = 'postgresql'
+    ) -> str:
+        """Create optimized, database-specific prompts."""
+        
+        # Analyze schema for smart query generation
+        schema_analysis = self.analyze_schema_relationships(schema_dict)
+        
+        # Get database rules
+        db_rules = self.database_specific_rules.get(database_type.lower(), self.database_specific_rules['postgresql'])
+        
+        # Handle patient ID filtering
+        patient_filter_instruction = ""
+        if patient_id and patient_id.strip() and patient_id.lower() not in ['all', 'none', '']:
+            escaped_patient_id = patient_id.replace("'", "''")
+            patient_filter_instruction = f"- 🎯 PATIENT FOCUS: Filter by patient ID '{escaped_patient_id}'"
+        else:
+            patient_filter_instruction = "- 📊 SAMPLE DATA: Show sample records without specific patient filtering"
+        
+        prompt = f"""You are a {database_type.upper()} healthcare database expert. Generate an EFFICIENT, TARGETED query.
+
+{self._create_schema_summary(schema_analysis)}
+
+QUERY REQUIREMENTS FOR {database_type.upper()}:
+{self._create_database_specific_requirements(db_rules)}
+
+{self._create_query_type_requirements(query_type, schema_analysis, patient_id)}
+
+CRITICAL RULES:
+1. 🎯 BE SELECTIVE: Only join tables that are ESSENTIAL for the requested data
+2. 🔗 VALIDATE JOINS: Only create JOINs where foreign key relationships actually exist in the schema
+3. 📊 LIMIT RESULTS: Always include {db_rules['limit_syntax']} clause for performance  
+4. 🏷️ USE ALIASES: Use short, clear table aliases (p for patients, e for encounters, etc.)
+5. 🔍 VERIFY COLUMNS: Use only column names that exist in the provided schema
+6. ⚡ AVOID COMPLEXITY: Don't join more than 3-4 tables unless absolutely necessary
+{patient_filter_instruction}
+
+Generate ONLY the SQL query - no explanations, no markdown, no extra text."""
+        
+        return prompt
+    
+    def _create_schema_summary(self, schema_analysis: Dict) -> str:
+        """Create a concise schema summary focusing on key relationships."""
+        tables = schema_analysis['tables']
+        core_tables = schema_analysis['core_tables']
+        
+        summary = "AVAILABLE TABLES:\n"
+        
+        # Show core tables first
+        for category, table_name in core_tables.items():
+            if table_name.lower() in tables:
+                table_info = tables[table_name.lower()]
+                key_fields = [f['name'] for f in table_info['fields'][:5]]  # Show first 5 fields
+                summary += f"- {table_name} ({category}): {', '.join(key_fields)}\n"
+        
+        # Show other important tables
+        other_tables = [name for name in tables.keys() if name not in [t.lower() for t in core_tables.values()]]
+        if other_tables and len(core_tables) < 8:  # Only show others if we don't have too many core tables
+            summary += "\nOTHER AVAILABLE TABLES:\n"
+            for table_name in other_tables[:8]:  # Limit to prevent prompt bloat
+                table_info = tables[table_name]
+                key_fields = [f['name'] for f in table_info['fields'][:3]]  # Show first 3 fields
+                summary += f"- {table_info['name']}: {', '.join(key_fields)}\n"
+        
+        return summary
+    
+    def _create_database_specific_requirements(self, db_rules: Dict) -> str:
+        """Create database-specific formatting requirements."""
+        reserved_examples = []
+        if 'START' in db_rules['reserved_words']:
+            reserved_examples.append(f'e.{db_rules["identifier_quotes"]}START{db_rules["identifier_quotes"]} AS encounter_date')
+        if 'END' in db_rules['reserved_words']:
+            reserved_examples.append(f'e.{db_rules["identifier_quotes"]}END{db_rules["identifier_quotes"]} AS end_date')
+        
+        return f"""
+- Identifier Quotes: ALWAYS use {db_rules['identifier_quotes']} for reserved words as column names
+- String Quotes: Use {db_rules['string_quotes']} for string values
+- Limit Clause: Use {db_rules['limit_syntax']} for result limiting
+- Reserved Words: {', '.join(db_rules['reserved_words'][:8])} (MUST wrap these in {db_rules['identifier_quotes']} quotes)
+- Examples: {', '.join(reserved_examples) if reserved_examples else 'Use quotes for reserved words'}
+"""
+    
+    def _create_query_type_requirements(self, query_type: str, schema_analysis: Dict, patient_id: str = "") -> str:
+        """Create query-type specific requirements."""
+        core_tables = schema_analysis['core_tables']
+        
+        # Create appropriate example based on patient_id
+        if patient_id and patient_id.strip() and patient_id.lower() not in ['all', 'none', '']:
+            example_query = f"SELECT p.* FROM {core_tables.get('patients', 'PATIENTS')} p WHERE p.id = '{patient_id}' LIMIT 10"
+        else:
+            example_query = f"SELECT p.* FROM {core_tables.get('patients', 'PATIENTS')} p LIMIT 10"
+        
+        if query_type == "basic":
+            return f"""
+BASIC QUERY FOCUS:
+- Primary table: {core_tables.get('patients', 'PATIENTS')} 
+- Include: Basic demographics, contact info, ID
+- Joins: NONE (single table query preferred)
+- Limit: 10 records maximum
+- Example: {example_query}
+"""
+        
+        elif query_type == "clinical":
+            return f"""
+CLINICAL QUERY FOCUS:
+- Primary table: {core_tables.get('patients', 'PATIENTS')}
+- Essential joins: {core_tables.get('conditions', 'CONDITIONS')}, {core_tables.get('medications', 'MEDICATIONS')}
+- Optional joins: {core_tables.get('procedures', 'PROCEDURES')}, {core_tables.get('observations', 'OBSERVATIONS')}
+- Focus: Medical conditions, treatments, lab results
+- Limit: 50 records maximum
+"""
+        
+        elif query_type == "billing":
+            return f"""
+BILLING QUERY FOCUS:
+- Primary table: {core_tables.get('patients', 'PATIENTS')}
+- Essential joins: Claims, billing, payments (if available)
+- Optional joins: {core_tables.get('encounters', 'ENCOUNTERS')} (for billing context)
+- Focus: Financial data, insurance, claims
+- Limit: 100 records maximum
+"""
+        
+        else:  # comprehensive
+            return f"""
+COMPREHENSIVE QUERY FOCUS (SMART APPROACH):
+- Primary table: {core_tables.get('patients', 'PATIENTS')}
+- Core joins: {core_tables.get('encounters', 'ENCOUNTERS')}, {core_tables.get('conditions', 'CONDITIONS')}
+- Secondary joins: {core_tables.get('medications', 'MEDICATIONS')}, {core_tables.get('procedures', 'PROCEDURES')}
+- Optional joins: Maximum 2 additional tables that are directly related
+- Strategy: Focus on most important relationships, avoid creating a massive query
+- Limit: 25 records maximum for performance
+"""
 
 
 class BedrockService:
@@ -211,8 +456,17 @@ class BedrockService:
             # Initialize Bedrock client
             bedrock_client = self._get_bedrock_client()
             
-            # Generate query-type specific prompt
-            prompt = self._create_healthcare_prompt(schema_dict, patient_id, query_type)
+            # Use enhanced query generation
+            optimizer = QueryGenerationOptimizer()
+            database_type = schema_dict.get('database_type', 'postgresql').lower()
+            
+            # Generate optimized, database-specific prompt
+            prompt = optimizer.create_optimized_prompt(
+                schema_dict, 
+                patient_id, 
+                query_type, 
+                database_type
+            )
             
             # Try different model IDs
             model_ids = [
@@ -312,19 +566,9 @@ class BedrockService:
         base_requirements = """
 🚨 CRITICAL SQL OUTPUT FORMAT:
 - MANDATORY: Always output the SQL query as raw SQL, not as a string.
-- ABSOLUTELY FORBIDDEN: Do not include backslashes (\) to escape quotes anywhere in the query.
+- ABSOLUTELY FORBIDDEN: Do not include backslashes (\\) to escape quotes anywhere in the query.
 - RESERVED KEYWORDS: If a reserved keyword is used as a table or column name, wrap it with the correct identifier quoting for the target database (e.g., "order" for PostgreSQL, `order` for MySQL, [order] for SQL Server).
 - FINAL REQUIREMENT: The final output must be a syntactically valid query that can run directly in the database client.
-
-🔥 EXAMPLES OF FORBIDDEN PATTERNS (DO NOT GENERATE THESE):
-❌ WRONG: LEFT JOIN \"order\" o ON...        (contains backslash)
-❌ WRONG: SELECT p.\"patient_id\"...          (contains backslash)
-❌ WRONG: FROM \"patients\" p...               (contains backslash)
-
-✅ CORRECT PATTERNS (GENERATE THESE INSTEAD):
-✅ RIGHT: LEFT JOIN "order" o ON...          (clean double quotes)
-✅ RIGHT: SELECT p."patient_id"...           (clean double quotes)
-✅ RIGHT: FROM "patients" p...               (clean double quotes)
 
 🚨 CRITICAL JOIN REQUIREMENTS:
 - BEFORE creating any JOIN: Check the actual column names in BOTH tables from the schema
@@ -776,7 +1020,35 @@ MongoDB Database Schema:
         # Final safety net - remove any character that could be a backslash
         query = ''.join(char for char in query if ord(char) != 92)  # ASCII 92 is backslash
         
+        # NEW: Fix reserved word issues for Snowflake
+        query = self._fix_reserved_words(query)
+        
         return query
+    
+    def _fix_reserved_words(self, query: str) -> str:
+        """Fix unquoted reserved words in the query for Snowflake."""
+        import re
+        
+        # Snowflake reserved words that commonly appear in healthcare schemas
+        reserved_words = ['START', 'END', 'DATE', 'TIME', 'TIMESTAMP', 'VALUE', 'TYPE', 
+                         'STATUS', 'DESCRIPTION', 'CODE', 'CLASS', 'KEY', 'ORDER', 'GROUP']
+        
+        # Pattern to find table_alias.column_name references
+        pattern = r'\b([a-zA-Z]\w*)\s*\.\s*([a-zA-Z_]\w*)\b'
+        
+        def fix_column_reference(match):
+            alias = match.group(1)
+            column = match.group(2).upper()
+            
+            if column in reserved_words:
+                # Check if already quoted
+                if not (match.group(2).startswith('"') and match.group(2).endswith('"')):
+                    return f'{alias}."{column}"'
+            
+            return match.group(0)  # Return original if no fix needed
+        
+        fixed_query = re.sub(pattern, fix_column_reference, query)
+        return fixed_query
     
     def _count_tables(self, schema_dict: Dict) -> int:
         """Count the number of tables in the schema."""

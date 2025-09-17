@@ -27,6 +27,11 @@ try:
 except ImportError:
     create_engine = None
     text = None
+
+try:
+    import snowflake.connector
+except ImportError:
+    snowflake.connector = None
 from urllib.parse import urlparse
 
 from pha.schemas.database_operations import (
@@ -201,6 +206,8 @@ class DatabaseOperationService:
             return await self._execute_oracle_query(connection, query, limit)
         elif database_type in ["sqlserver", "mssql"]:
             return await self._execute_sqlserver_query(connection, query, limit)
+        elif database_type == "snowflake":
+            return await self._execute_snowflake_query(connection, query, limit)
         else:
             raise ValueError(f"Unsupported database type: {database_type}")
     
@@ -472,3 +479,116 @@ class DatabaseOperationService:
         finally:
             if 'conn' in locals():
                 conn.close()
+
+    async def _execute_snowflake_query(
+        self, 
+        connection, 
+        query: str, 
+        limit: int
+    ) -> List[DatabaseQueryResult]:
+        """Execute Snowflake query."""
+        if snowflake.connector is None:
+            raise Exception("snowflake-connector-python package is not installed. Install with: pip install snowflake-connector-python")
+            
+        start_time = time.time()
+        
+        try:
+            # Add LIMIT clause if not present
+            if 'LIMIT' not in query.upper():
+                query = f"{query} LIMIT {limit}"
+            
+            # Parse connection parameters
+            if connection.connection_string:
+                conn_params = self._parse_snowflake_connection_string(connection.connection_string)
+            else:
+                conn_params = {
+                    'user': connection.username,
+                    'password': connection.password,
+                    'account': connection.host.replace('.snowflakecomputing.com', ''),
+                    'database': connection.database_name,
+                    'schema': 'PUBLIC'  # Default schema
+                }
+            
+            # Connect to Snowflake
+            conn = snowflake.connector.connect(**conn_params)
+            cursor = conn.cursor()
+            
+            # Execute query
+            cursor.execute(query)
+            results = cursor.fetchall()
+            
+            # Get column names
+            column_names = [desc[0] for desc in cursor.description]
+            
+            # Convert to list of dictionaries
+            data = []
+            for row in results:
+                row_dict = {}
+                for i, value in enumerate(row):
+                    # Handle Snowflake specific data types
+                    if hasattr(value, 'isoformat'):  # datetime objects
+                        row_dict[column_names[i]] = value.isoformat()
+                    elif isinstance(value, (int, float, str, bool)) or value is None:
+                        row_dict[column_names[i]] = value
+                    else:
+                        row_dict[column_names[i]] = str(value)
+                data.append(row_dict)
+            
+            execution_time = (time.time() - start_time) * 1000
+            
+            return [DatabaseQueryResult(
+                table_name="query_result",
+                query=query,
+                row_count=len(data),
+                data=data,
+                execution_time_ms=execution_time
+            )]
+            
+        except Exception as e:
+            raise Exception(f"Snowflake query execution failed: {str(e)}")
+        finally:
+            if 'conn' in locals():
+                conn.close()
+    
+    def _parse_snowflake_connection_string(self, connection_string: str) -> Dict[str, Any]:
+        """Parse Snowflake connection string with enhanced account identifier handling."""
+        from urllib.parse import urlparse, parse_qs
+        
+        try:
+            # Snowflake URL format: snowflake://user:password@account/database/schema?warehouse=WH&role=ROLE
+            parsed = urlparse(connection_string)
+            
+            # Extract account identifier - handle different formats
+            hostname = parsed.hostname
+            account = hostname.replace('.snowflakecomputing.com', '')
+            
+            # Handle different account identifier formats
+            # 1. If account has region (e.g., "qgkxkwg-mr95865.ap-south-1.aws"), use without region
+            # 2. This matches the logic used in connection_service.py and schema_extraction_service.py
+            if '.ap-south-1.aws' in account:
+                # Use without region (this is what worked in connection test)
+                account = account.replace('.ap-south-1.aws', '')
+            elif '.aws' in account or '.azure' in account or '.gcp' in account:
+                # Other cloud regions - use account part only
+                parts = account.split('.')
+                account = parts[0]
+            
+            params = {
+                'user': parsed.username,
+                'password': parsed.password,
+                'account': account,  # Use the cleaned account identifier
+                'database': parsed.path.split('/')[1] if len(parsed.path.split('/')) > 1 else 'PHA',
+                'schema': parsed.path.split('/')[2] if len(parsed.path.split('/')) > 2 else 'PUBLIC'
+            }
+            
+            # Parse query parameters
+            query_params = parse_qs(parsed.query)
+            if 'warehouse' in query_params:
+                params['warehouse'] = query_params['warehouse'][0]
+            if 'role' in query_params:
+                params['role'] = query_params['role'][0]
+            
+            return params
+            
+        except Exception as e:
+            raise ValueError(f"Invalid Snowflake connection string format: {str(e)}")

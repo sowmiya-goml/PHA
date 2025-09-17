@@ -30,6 +30,7 @@ dependencies = [
     "pyodbc>=5.0.1",
     "boto3>=1.26.0",
     "botocore>=1.29.0",
+    "snowflake-connector-python>=3.17.3",
 ]
 
 [project.optional-dependencies]
