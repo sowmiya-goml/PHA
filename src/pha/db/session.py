@@ -23,6 +23,14 @@ class DatabaseManager:
         
     async def connect(self):
         """Establish connection to MongoDB with retry logic."""
+        # Validate connection string format
+        if not settings.MONGODB_URL.startswith("mongodb+srv://"):
+            logger.error("❌ Invalid MongoDB connection string format. Expected mongodb+srv:// format")
+            return False
+            
+        logger.info(f"🔗 Connecting to MongoDB Atlas cluster: {settings.MONGODB_URL.split('@')[1].split('?')[0]}")
+        logger.debug(f"🔍 Full connection string: {settings.MONGODB_URL[:50]}...")
+        
         for attempt in range(self._max_retries):
             try:
                 logger.info(f"Attempting to connect to MongoDB (attempt {attempt + 1}/{self._max_retries})")
@@ -49,16 +57,27 @@ class DatabaseManager:
                 return True
                 
             except Exception as e:
-                logger.warning(f"⚠️  MongoDB connection attempt {attempt + 1} failed: {e}")
+                error_msg = str(e)
+                if "DNS" in error_msg or "resolution" in error_msg:
+                    logger.warning(f"⚠️  DNS resolution failed on attempt {attempt + 1}: Network/DNS issue")
+                elif "timeout" in error_msg.lower():
+                    logger.warning(f"⚠️  Connection timeout on attempt {attempt + 1}: MongoDB Atlas may be slow")
+                else:
+                    logger.warning(f"⚠️  MongoDB connection attempt {attempt + 1} failed: {error_msg}")
+                
                 self._connection_retries += 1
                 
                 if attempt < self._max_retries - 1:
-                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    wait_time = 1 + attempt  # Linear backoff: 1s, 2s, 3s (faster)
                     logger.info(f"Retrying in {wait_time} seconds...")
                     await asyncio.sleep(wait_time)
                 else:
-                    logger.error("⚠️  All MongoDB connection attempts failed")
-                    logger.warning("Starting without database connection...")
+                    logger.error("❌ All MongoDB connection attempts failed")
+                    logger.error("💡 Possible solutions:")
+                    logger.error("   - Check your internet connection")
+                    logger.error("   - Verify MongoDB Atlas cluster is running")
+                    logger.error("   - Check firewall/proxy settings")
+                    logger.warning("🚀 Starting server without database connection...")
                     self.client = None
                     self.db = None
                     self.connections_collection = None

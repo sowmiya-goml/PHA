@@ -1,11 +1,14 @@
 """Core configuration settings for the Health Foundary PHA."""
 
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from pymongo import MongoClient
 
-# Load environment variables
-load_dotenv()
+# Load environment variables from config directory
+config_dir = Path(__file__).parent.parent.parent / "config"
+env_file = config_dir / ".env"
+load_dotenv(env_file)
 
 
 class Settings:
@@ -16,9 +19,9 @@ class Settings:
     VERSION: str = "2.0.0"
     DESCRIPTION: str = "AI-powered healthcare platform for secure healthcare data processing and analytics"
     
-    # MongoDB configuration  
-    MONGODB_URL: str = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
-    DATABASE_NAME: str = os.getenv("DATABASE_NAME", "pha_metadata")
+    # MongoDB configuration - Direct Atlas connection
+    MONGODB_URL: str = "mongodb+srv://22cs027_db_user:SathyaPainter@pha.o1mtvpd.mongodb.net/?retryWrites=true&w=majority&appName=PHA"
+    DATABASE_NAME: str = os.getenv("DATABASE_NAME", "pha_connections")
     
     # AWS Configuration
     AWS_REGION: str = os.getenv("AWS_REGION", "us-east-1")
@@ -40,9 +43,9 @@ class Settings:
     MAX_ROWS_PER_QUERY: int = int(os.getenv("MAX_ROWS_PER_QUERY", "10000"))
     REPORT_EXPIRY_MINUTES: int = int(os.getenv("REPORT_EXPIRY_MINUTES", "5"))
     
-    # Database connection timeout (increased for MongoDB Atlas)
-    DB_CONNECTION_TIMEOUT_MS: int = int(os.getenv("DB_CONNECTION_TIMEOUT_MS", "30000"))  # 30 seconds
-    DB_SERVER_SELECTION_TIMEOUT_MS: int = int(os.getenv("DB_SERVER_SELECTION_TIMEOUT_MS", "30000"))  # 30 seconds
+    # Database connection timeout (working settings for MongoDB Atlas)
+    DB_CONNECTION_TIMEOUT_MS: int = int(os.getenv("DB_CONNECTION_TIMEOUT_MS", "20000"))  # 20 seconds
+    DB_SERVER_SELECTION_TIMEOUT_MS: int = int(os.getenv("DB_SERVER_SELECTION_TIMEOUT_MS", "10000"))  # 10 seconds
     
     class Config:
         case_sensitive = True

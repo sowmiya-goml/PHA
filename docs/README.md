@@ -12,6 +12,7 @@ Welcome to the PHA (Personal Health Assistant) Backend documentation.
 - [Migration Guide](development/migration.md) - Project structure migration details
 - [Flow Summary](development/flow_summary.md) - System flow and architecture
 - [Setup Guide](development/setup.md) - Development environment setup
+- [MongoDB Connection Testing](development/mongodb-connection-testing.md) - Database connection testing guide
 
 ### Architecture
 - [System Architecture](architecture.md) - Overall system design
