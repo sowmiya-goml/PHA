@@ -1,5 +1,6 @@
-    """Main FastAPI application entry point."""
+"""Main FastAPI application entry point."""
 
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

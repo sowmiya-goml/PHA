@@ -494,7 +494,6 @@ source = { editable = "." }
 dependencies = [
     { name = "boto3" },
     { name = "botocore" },
-    { name = "cx-oracle" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "mysql-connector-python" },
@@ -517,13 +516,16 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
 ]
+oracle = [
+    { name = "cx-oracle" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "boto3", specifier = ">=1.26.0" },
     { name = "botocore", specifier = ">=1.29.0" },
-    { name = "cx-oracle", specifier = ">=8.3.0" },
+    { name = "cx-oracle", marker = "extra == 'oracle'", specifier = ">=8.3.0" },
     { name = "fastapi", specifier = ">=0.104.1" },
     { name = "flake8", marker = "extra == 'dev'", specifier = ">=6.0.0" },
     { name = "httpx", specifier = ">=0.25.2" },
@@ -541,7 +543,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.31.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.24.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["oracle", "dev"]
 
 [[package]]
 name = "platformdirs"
