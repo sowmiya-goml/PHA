@@ -8,7 +8,15 @@ from pymongo import MongoClient
 # Load environment variables from config directory
 config_dir = Path(__file__).parent.parent.parent / "config"
 env_file = config_dir / ".env"
-load_dotenv(env_file)
+
+# Ensure the .env file exists and load it
+if env_file.exists():
+    load_dotenv(env_file, override=True)
+else:
+    # Fallback: try to find .env file in current working directory
+    fallback_env = Path.cwd() / "config" / ".env"
+    if fallback_env.exists():
+        load_dotenv(fallback_env, override=True)
 
 
 class Settings:
@@ -24,7 +32,9 @@ class Settings:
     DATABASE_NAME: str = os.getenv("DATABASE_NAME", "pha_connections")
     
     # AWS Configuration
-    AWS_REGION: str = os.getenv("AWS_REGION", "us-east-1")
+    AWS_ACCESS_KEY_ID: str = os.getenv("AWS_ACCESS_KEY_ID", "")
+    AWS_SECRET_ACCESS_KEY: str = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+    AWS_DEFAULT_REGION: str = os.getenv("AWS_DEFAULT_REGION", "ap-south-1")
     BEDROCK_MODEL_ID: str = os.getenv("BEDROCK_MODEL_ID", "anthropic.claude-3-sonnet-20240229-v1:0")
     S3_REPORT_BUCKET: str = os.getenv("S3_REPORT_BUCKET", "pha-health-reports")
     

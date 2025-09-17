@@ -35,7 +35,7 @@ class BedrockService:
         bedrock_connection = DatabaseConnection(
             connection_name="Static Bedrock Connection",
             database_type="bedrock",
-            connection_string=f"bedrock://{os.getenv('AWS_DEFAULT_REGION', 'us-east-1')}",
+            connection_string=f"bedrock://{settings.AWS_DEFAULT_REGION}",
             additional_notes=f"Bedrock AI service - Model: {os.getenv('BEDROCK_MODEL_ID', 'anthropic.claude-3.5-sonnet-20240620-v1:0')}"
         )
         
@@ -43,7 +43,7 @@ class BedrockService:
         connection_doc = bedrock_connection.to_dict()
         connection_doc["_id"] = self.BEDROCK_CONNECTION_ID
         # Add Bedrock-specific fields to the document
-        connection_doc["aws_region"] = os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
+        connection_doc["aws_region"] = settings.AWS_DEFAULT_REGION
         connection_doc["model_id"] = os.getenv('BEDROCK_MODEL_ID', 'anthropic.claude-3.5-sonnet-20240620-v1:0')
         
         try:
@@ -281,9 +281,9 @@ class BedrockService:
     
     def _get_bedrock_client(self):
         """Initialize and return Bedrock client."""
-        aws_access_key = os.getenv("AWS_ACCESS_KEY_ID")
-        aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY") 
-        aws_region = os.getenv("AWS_DEFAULT_REGION", "ap-south-1")
+        aws_access_key = settings.AWS_ACCESS_KEY_ID
+        aws_secret_key = settings.AWS_SECRET_ACCESS_KEY 
+        aws_region = settings.AWS_DEFAULT_REGION
         
         if not aws_access_key or not aws_secret_key:
             raise Exception("AWS credentials not configured properly")
