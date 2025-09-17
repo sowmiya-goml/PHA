@@ -1,4 +1,4 @@
-"""Main FastAPI application entry point."""
+    """Main FastAPI application entry point."""
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
