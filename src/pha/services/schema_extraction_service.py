@@ -29,12 +29,24 @@ class DatabaseSchemaExtractor:
         'mongo atlas': 'mongodb',   # Alternative naming
         'atlas': 'mongodb',         # Short form
         'mongo': 'mongodb',         # Generic MongoDB
-        'snowflake': 'snowflake'    # Snowflake data warehouse
+        'snowflake': 'snowflake',   # Snowflake data warehouse
+        # Auto-detect mappings from connection string
+        'sql': 'auto-detect',       # Generic SQL - will be auto-detected
+        'database': 'auto-detect',  # Generic database
+        'db': 'auto-detect'         # Generic db
     }
     
     def __init__(self):
         """Initialize the schema extractor."""
         pass
+    
+    def _get_database_name(self, connection: DatabaseConnection) -> str:
+        """Extract database name from connection string."""
+        try:
+            parsed = self._parse_connection_string(connection.connection_string, connection.database_type)
+            return parsed.get('database') or parsed.get('service_name') or 'unknown'
+        except Exception:
+            return 'unknown'
     
     def _parse_connection_string(self, connection_string: str, db_type: str) -> Dict[str, Any]:
         """
@@ -146,8 +158,19 @@ class DatabaseSchemaExtractor:
             DatabaseSchemaResult with consistent structure across all DB types
         """
         try:
-            # Normalize database type
+            # Normalize database type, with auto-detection if needed
             db_type = self._normalize_db_type(connection.database_type)
+            
+            # If auto-detection is needed, detect from connection string
+            if db_type == 'auto-detect' or db_type == 'unknown':
+                db_type = self._auto_detect_database_type_from_connection_string(connection.connection_string)
+                # If still unknown, return error
+                if db_type == 'unknown':
+                    return self._create_error_result(
+                        f"Unsupported database type: {connection.database_type}",
+                        connection.database_type,
+                        self._get_database_name(connection)
+                    )
             
             # Route to appropriate extractor
             if db_type == 'postgresql':
@@ -165,23 +188,46 @@ class DatabaseSchemaExtractor:
             else:
                 return DatabaseSchemaResult(
                     status="error",
-                    message=f"Unsupported database type: {connection.database_type}",
+                    message=f"Unsupported database type: {connection.database_type} (detected: {db_type})",
                     database_type=connection.database_type,
-                    database_name=connection.database_name
+                    database_name=self._get_database_name(connection)
                 )
                 
         except Exception as e:
             return DatabaseSchemaResult(
                 status="error",
-                message=f"Schema extraction failed: {str(e)}",
+                message=f"Failed to extract schema: {str(e)}",
                 database_type=connection.database_type,
-                database_name=connection.database_name
+                database_name=self._get_database_name(connection)
             )
     
     def _normalize_db_type(self, db_type: str) -> str:
         """Normalize database type for consistent processing."""
         normalized = db_type.lower().strip()
-        return self.DB_TYPE_MAPPINGS.get(normalized, normalized)
+        mapped_type = self.DB_TYPE_MAPPINGS.get(normalized, normalized)
+        return mapped_type
+    
+    def _auto_detect_database_type_from_connection_string(self, connection_string: str) -> str:
+        """Auto-detect database type from connection string."""
+        if not connection_string:
+            return 'unknown'
+            
+        connection_string_lower = connection_string.lower()
+        
+        if connection_string_lower.startswith('postgresql://') or connection_string_lower.startswith('postgres://'):
+            return 'postgresql'
+        elif connection_string_lower.startswith('mysql://'):
+            return 'mysql'  
+        elif connection_string_lower.startswith('mongodb://') or connection_string_lower.startswith('mongodb+srv://'):
+            return 'mongodb'
+        elif connection_string_lower.startswith('snowflake://'):
+            return 'snowflake'
+        elif connection_string_lower.startswith('oracle://'):
+            return 'oracle'
+        elif 'server=' in connection_string_lower and ('database=' in connection_string_lower or 'initial catalog=' in connection_string_lower):
+            return 'sqlserver'
+        else:
+            return 'unknown'
     
     def _create_unified_schema_result(
         self, 
@@ -241,13 +287,24 @@ class DatabaseSchemaExtractor:
         total_columns = sum(len(t.fields) for t in tables)
         total_rows = sum(t.row_count or 0 for t in tables)
         
+        # Parse connection string to get connection details
+        try:
+            parsed = self._parse_connection_string(connection.connection_string, connection.database_type)
+            database_name = parsed.get('database') or parsed.get('service_name') or 'unknown'
+            host = parsed.get('host') or 'unknown'
+            port = parsed.get('port') or 0
+        except Exception:
+            database_name = 'unknown'
+            host = 'unknown'
+            port = 0
+        
         # Build unified schema
         unified_schema = {
             "database_info": {
-                "name": connection.database_name,
+                "name": database_name,
                 "type": self._normalize_db_type(connection.database_type),
-                "host": connection.host,
-                "port": connection.port,
+                "host": host,
+                "port": port,
                 "schema_extracted_at": datetime.utcnow().isoformat() + "Z",
                 **(additional_info or {})
             },
@@ -649,14 +706,14 @@ class DatabaseSchemaExtractor:
                 status="error",
                 message="MySQL connector not installed. Run: pip install mysql-connector-python",
                 database_type=connection.database_type,
-                database_name=connection.database_name
+                database_name=self._get_database_name(connection)
             )
         except Exception as e:
             return DatabaseSchemaResult(
                 status="error",
                 message=f"MySQL schema extraction failed: {str(e)}",
                 database_type=connection.database_type,
-                database_name=connection.database_name
+                database_name=self._get_database_name(connection)
             )
 
     async def _extract_oracle_schema(self, connection: DatabaseConnection) -> DatabaseSchemaResult:
@@ -801,14 +858,14 @@ class DatabaseSchemaExtractor:
                 status="error",
                 message="Oracle connector not installed. Run: pip install cx-Oracle",
                 database_type=connection.database_type,
-                database_name=connection.database_name
+                database_name=self._get_database_name(connection)
             )
         except Exception as e:
             return DatabaseSchemaResult(
                 status="error",
                 message=f"Oracle schema extraction failed: {str(e)}",
                 database_type=connection.database_type,
-                database_name=connection.database_name
+                database_name=self._get_database_name(connection)
             )
 
     async def _extract_sqlserver_schema(self, connection: DatabaseConnection) -> DatabaseSchemaResult:
@@ -954,14 +1011,14 @@ class DatabaseSchemaExtractor:
                 status="error",
                 message="SQL Server connector not installed. Run: pip install pyodbc",
                 database_type=connection.database_type,
-                database_name=connection.database_name
+                database_name=self._get_database_name(connection)
             )
         except Exception as e:
             return DatabaseSchemaResult(
                 status="error",
                 message=f"SQL Server schema extraction failed: {str(e)}",
                 database_type=connection.database_type,
-                database_name=connection.database_name
+                database_name=self._get_database_name(connection)
             )
 
     async def _extract_mongodb_schema(self, connection: DatabaseConnection) -> DatabaseSchemaResult:
@@ -1117,14 +1174,14 @@ class DatabaseSchemaExtractor:
                 status="error",
                 message="PyMongo not installed. Run: pip install pymongo",
                 database_type=connection.database_type,
-                database_name=connection.database_name
+                database_name=self._get_database_name(connection)
             )
         except Exception as e:
             return DatabaseSchemaResult(
                 status="error",
                 message=f"MongoDB schema extraction failed: {str(e)}",
                 database_type=connection.database_type,
-                database_name=connection.database_name
+                database_name=self._get_database_name(connection)
             )
 
     def _analyze_document_fields(self, doc, field_analysis, prefix=""):
@@ -1192,7 +1249,7 @@ class DatabaseSchemaExtractor:
                     status="error",
                     message="snowflake-connector-python package is not installed. Install with: pip install snowflake-connector-python",
                     database_type=connection.database_type,
-                    database_name=connection.database_name
+                    database_name=self._get_database_name(connection)
                 )
             
             # Parse connection parameters
@@ -1203,7 +1260,7 @@ class DatabaseSchemaExtractor:
                     'user': connection.username,
                     'password': connection.password,
                     'account': connection.host.replace('.snowflakecomputing.com', ''),
-                    'database': connection.database_name,
+                    'database': self._get_database_name(connection),
                     'schema': 'PUBLIC'  # Default schema
                 }
             
@@ -1214,7 +1271,7 @@ class DatabaseSchemaExtractor:
             # Get current database and schema info
             cursor.execute("SELECT CURRENT_DATABASE(), CURRENT_SCHEMA(), CURRENT_VERSION()")
             db_info = cursor.fetchone()
-            current_database = db_info[0] if db_info else connection.database_name
+            current_database = db_info[0] if db_info else self._get_database_name(connection)
             current_schema = db_info[1] if db_info else None
             snowflake_version = db_info[2] if db_info else 'Unknown'
             
@@ -1407,7 +1464,7 @@ class DatabaseSchemaExtractor:
                 status="error",
                 message=f"Failed to extract Snowflake schema: {str(e)}",
                 database_type=connection.database_type,
-                database_name=connection.database_name
+                database_name=self._get_database_name(connection)
             )
     
     def _parse_snowflake_connection_string(self, connection_string: str) -> Dict[str, Any]:

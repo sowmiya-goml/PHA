@@ -13,13 +13,6 @@ class DatabaseConnection:
         connection_name: str,
         database_type: str,
         connection_string: str,
-        additional_notes: Optional[str] = None,
-        # Legacy fields for backward compatibility
-        host: Optional[str] = None,
-        port: Optional[int] = None,
-        database_name: Optional[str] = None,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
         _id: Optional[ObjectId] = None,
         created_at: Optional[datetime] = None,
         updated_at: Optional[datetime] = None
@@ -28,14 +21,6 @@ class DatabaseConnection:
         self.connection_name = connection_name
         self.database_type = database_type
         self.connection_string = connection_string
-        self.additional_notes = additional_notes
-        
-        # Legacy fields (for backward compatibility with existing code)
-        self.host = host
-        self.port = port
-        self.database_name = database_name
-        self.username = username
-        self.password = password
         
         self.created_at = created_at or datetime.utcnow()
         self.updated_at = updated_at or datetime.utcnow()
@@ -46,13 +31,6 @@ class DatabaseConnection:
             "connection_name": self.connection_name,
             "database_type": self.database_type,
             "connection_string": self.connection_string,
-            "additional_notes": self.additional_notes,
-            # Legacy fields (can be None)
-            "host": self.host,
-            "port": self.port,
-            "database_name": self.database_name,
-            "username": self.username,
-            "password": self.password,
             "created_at": self.created_at,
             "updated_at": self.updated_at
         }
@@ -89,13 +67,6 @@ class DatabaseConnection:
             connection_name=data["connection_name"],
             database_type=data["database_type"],
             connection_string=connection_string,
-            additional_notes=data.get("additional_notes"),
-            # Legacy fields for backward compatibility
-            host=data.get("host"),
-            port=data.get("port"),
-            database_name=data.get("database_name"),
-            username=data.get("username"),
-            password=data.get("password"),
             created_at=data.get("created_at"),
             updated_at=data.get("updated_at")
         )

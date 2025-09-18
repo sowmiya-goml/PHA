@@ -7,41 +7,34 @@ from datetime import datetime
 
 class DatabaseConnectionBase(BaseModel):
     """Base schema for database connection."""
-    connection_name: str = Field(..., description="Name for the database connection")
-    database_type: str = Field(..., description="Type of database (MySQL, PostgreSQL, MongoDB, etc.)")
+    database_type: str = Field(..., description="Type of database (MySQL, PostgreSQL, MongoDB, Snowflake, Oracle, SQL Server)")
     connection_string: str = Field(..., description="Database connection string URI")
-    additional_notes: Optional[str] = Field(None, description="Additional notes or configuration")
     
-    # Optional: Keep legacy fields for backward compatibility (can be removed later)
-    host: Optional[str] = Field(None, description="Database host address (legacy - use connection_string)")
-    port: Optional[int] = Field(None, description="Database port number (legacy - use connection_string)")
-    database_name: Optional[str] = Field(None, description="Name of the database (legacy - use connection_string)")
-    username: Optional[str] = Field(None, description="Database username (legacy - use connection_string)")
-    password: Optional[str] = Field(None, description="Database password (legacy - use connection_string)")
+    # Auto-generated fields (not required in input)
+    connection_name: Optional[str] = Field(None, description="Auto-generated name for the database connection")
+    additional_notes: Optional[str] = Field(None, description="Additional notes or configuration")
 
 
-class DatabaseConnectionCreate(DatabaseConnectionBase):
-    """Schema for creating a database connection."""
-    pass
+class DatabaseConnectionCreate(BaseModel):
+    """Schema for creating a database connection - simplified to only require essentials."""
+    database_type: str = Field(..., description="Type of database (MySQL, PostgreSQL, MongoDB, Snowflake, Oracle, SQL Server)")
+    connection_string: str = Field(..., description="Database connection string URI")
 
 
 class DatabaseConnectionUpdate(BaseModel):
     """Schema for updating a database connection."""
-    connection_name: Optional[str] = None
-    database_type: Optional[str] = None
-    connection_string: Optional[str] = None
-    additional_notes: Optional[str] = None
-    # Legacy fields (optional for backward compatibility)
-    host: Optional[str] = None
-    port: Optional[int] = None
-    database_name: Optional[str] = None
-    username: Optional[str] = None
-    password: Optional[str] = None
+    database_type: Optional[str] = Field(None, description="Type of database")
+    connection_string: Optional[str] = Field(None, description="Database connection string URI")
+    connection_name: Optional[str] = Field(None, description="Name for the database connection")
+    additional_notes: Optional[str] = Field(None, description="Additional notes or configuration")
 
 
-class DatabaseConnectionResponse(DatabaseConnectionBase):
+class DatabaseConnectionResponse(BaseModel):
     """Schema for database connection response."""
     id: str = Field(..., description="Unique identifier for the connection")
+    connection_name: str = Field(..., description="Auto-generated name for the database connection")
+    database_type: str = Field(..., description="Type of database")
+    connection_string: str = Field(..., description="Database connection string URI")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
     

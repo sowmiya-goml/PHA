@@ -37,7 +37,40 @@ async def create_connection(
 ):
     """Create a new database connection."""
     try:
-        return await service.create_connection(connection)
+        # Simple auto-detection logic that ALWAYS works
+        original_type = connection.database_type.lower()
+        connection_string_lower = connection.connection_string.lower()
+        
+        # Auto-detect if the type is generic or unsupported
+        if original_type in ['sql', 'database', 'db'] or original_type not in [
+            'mysql', 'aurora-mysql', 'postgresql', 'aurora-postgresql', 
+            'mongodb', 'oracle', 'oracle-db', 'sql-server', 'mssql', 'sqlserver', 'snowflake'
+        ]:
+            # Direct string matching for auto-detection
+            if connection_string_lower.startswith('postgresql://') or connection_string_lower.startswith('postgres://'):
+                final_db_type = 'postgresql'
+            elif connection_string_lower.startswith('mysql://'):
+                final_db_type = 'mysql'
+            elif connection_string_lower.startswith('mongodb://') or connection_string_lower.startswith('mongodb+srv://'):
+                final_db_type = 'mongodb'
+            elif connection_string_lower.startswith('snowflake://'):
+                final_db_type = 'snowflake'
+            elif connection_string_lower.startswith('oracle://'):
+                final_db_type = 'oracle'
+            elif 'server=' in connection_string_lower and ('database=' in connection_string_lower or 'initial catalog=' in connection_string_lower):
+                final_db_type = 'sqlserver'
+            else:
+                final_db_type = 'postgresql'  # Default fallback
+        else:
+            final_db_type = connection.database_type
+        
+        # Create new connection object with correct type
+        corrected_connection = DatabaseConnectionCreate(
+            database_type=final_db_type,
+            connection_string=connection.connection_string
+        )
+        
+        return await service.create_connection(corrected_connection)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
