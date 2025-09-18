@@ -28,7 +28,8 @@ class DatabaseSchemaExtractor:
         'mongodb atlas': 'mongodb',  # MongoDB Atlas
         'mongo atlas': 'mongodb',   # Alternative naming
         'atlas': 'mongodb',         # Short form
-        'mongo': 'mongodb'          # Generic MongoDB
+        'mongo': 'mongodb',         # Generic MongoDB
+        'snowflake': 'snowflake'    # Snowflake data warehouse
     }
     
     def __init__(self):
@@ -159,6 +160,8 @@ class DatabaseSchemaExtractor:
                 return await self._extract_sqlserver_schema(connection)
             elif db_type == 'mongodb':
                 return await self._extract_mongodb_schema(connection)
+            elif db_type == 'snowflake':
+                return await self._extract_snowflake_schema(connection)
             else:
                 return DatabaseSchemaResult(
                     status="error",
@@ -1177,3 +1180,273 @@ class DatabaseSchemaExtractor:
             return "null"
         else:
             return type(value).__name__
+
+    async def _extract_snowflake_schema(self, connection: DatabaseConnection) -> DatabaseSchemaResult:
+        """Extract schema from Snowflake data warehouse."""
+        try:
+            # Import Snowflake connector
+            try:
+                import snowflake.connector
+            except ImportError:
+                return DatabaseSchemaResult(
+                    status="error",
+                    message="snowflake-connector-python package is not installed. Install with: pip install snowflake-connector-python",
+                    database_type=connection.database_type,
+                    database_name=connection.database_name
+                )
+            
+            # Parse connection parameters
+            if connection.connection_string:
+                conn_params = self._parse_snowflake_connection_string(connection.connection_string)
+            else:
+                conn_params = {
+                    'user': connection.username,
+                    'password': connection.password,
+                    'account': connection.host.replace('.snowflakecomputing.com', ''),
+                    'database': connection.database_name,
+                    'schema': 'PUBLIC'  # Default schema
+                }
+            
+            # Connect to Snowflake
+            conn = snowflake.connector.connect(**conn_params)
+            cursor = conn.cursor()
+            
+            # Get current database and schema info
+            cursor.execute("SELECT CURRENT_DATABASE(), CURRENT_SCHEMA(), CURRENT_VERSION()")
+            db_info = cursor.fetchone()
+            current_database = db_info[0] if db_info else connection.database_name
+            current_schema = db_info[1] if db_info else None
+            snowflake_version = db_info[2] if db_info else 'Unknown'
+            
+            # If current schema is None or empty, try to use PUBLIC schema
+            if not current_schema:
+                try:
+                    cursor.execute(f"USE SCHEMA {current_database}.PUBLIC")
+                    current_schema = 'PUBLIC'
+                except Exception:
+                    # If PUBLIC doesn't work, list available schemas and use the first one
+                    try:
+                        cursor.execute(f"SHOW SCHEMAS IN DATABASE {current_database}")
+                        schemas = cursor.fetchall()
+                        available_schemas = [s[1] for s in schemas if s[1] not in ['INFORMATION_SCHEMA']]
+                        if available_schemas:
+                            current_schema = available_schemas[0]
+                            cursor.execute(f"USE SCHEMA {current_database}.{current_schema}")
+                        else:
+                            current_schema = 'PUBLIC'
+                    except Exception:
+                        current_schema = 'PUBLIC'
+            
+            # Get all tables and views in the current schema
+            # Use a simpler query to avoid permission issues
+            try:
+                cursor.execute(f"""
+                    SELECT 
+                        TABLE_NAME,
+                        TABLE_TYPE,
+                        ROW_COUNT,
+                        BYTES,
+                        CREATED,
+                        LAST_ALTERED,
+                        COMMENT
+                    FROM INFORMATION_SCHEMA.TABLES 
+                    WHERE TABLE_SCHEMA = '{current_schema}'
+                        AND TABLE_CATALOG = '{current_database}'
+                    ORDER BY TABLE_NAME
+                """)
+            except Exception:
+                # Fallback to basic query if the full query fails
+                cursor.execute(f"""
+                    SELECT 
+                        TABLE_NAME,
+                        TABLE_TYPE,
+                        NULL as ROW_COUNT,
+                        NULL as BYTES,
+                        NULL as CREATED,
+                        NULL as LAST_ALTERED,
+                        NULL as COMMENT
+                    FROM INFORMATION_SCHEMA.TABLES 
+                    WHERE TABLE_SCHEMA = '{current_schema}'
+                        AND TABLE_CATALOG = '{current_database}'
+                    ORDER BY TABLE_NAME
+                """)
+            
+            tables_info = cursor.fetchall()
+            tables = []
+            
+            for table_info in tables_info:
+                table_name = table_info[0]
+                table_type = table_info[1]
+                row_count = table_info[2] or 0
+                table_size_bytes = table_info[3] or 0
+                created_date = table_info[4]
+                modified_date = table_info[5]
+                table_comment = table_info[6] or ""
+                
+                # Get column information for each table
+                try:
+                    cursor.execute(f"""
+                        SELECT 
+                            COLUMN_NAME,
+                            DATA_TYPE,
+                            IS_NULLABLE,
+                            COLUMN_DEFAULT,
+                            CHARACTER_MAXIMUM_LENGTH,
+                            NUMERIC_PRECISION,
+                            NUMERIC_SCALE,
+                            ORDINAL_POSITION,
+                            COMMENT
+                        FROM INFORMATION_SCHEMA.COLUMNS 
+                        WHERE TABLE_SCHEMA = '{current_schema}'
+                            AND TABLE_CATALOG = '{current_database}'
+                            AND TABLE_NAME = '{table_name}'
+                        ORDER BY ORDINAL_POSITION
+                    """)
+                except Exception:
+                    # Fallback to basic column query
+                    cursor.execute(f"""
+                        SELECT 
+                            COLUMN_NAME,
+                            DATA_TYPE,
+                            IS_NULLABLE,
+                            COLUMN_DEFAULT,
+                            NULL as CHARACTER_MAXIMUM_LENGTH,
+                            NULL as NUMERIC_PRECISION,
+                            NULL as NUMERIC_SCALE,
+                            ORDINAL_POSITION,
+                            NULL as COMMENT
+                        FROM INFORMATION_SCHEMA.COLUMNS 
+                        WHERE TABLE_SCHEMA = '{current_schema}'
+                            AND TABLE_CATALOG = '{current_database}'
+                            AND TABLE_NAME = '{table_name}'
+                        ORDER BY ORDINAL_POSITION
+                    """)
+                
+                columns_info = cursor.fetchall()
+                fields = []
+                
+                for col_info in columns_info:
+                    field = DatabaseField(
+                        name=col_info[0],
+                        type=col_info[1],
+                        nullable=col_info[2] == 'YES',
+                        default=col_info[3],
+                        primary_key=False,  # Will be updated with key info
+                        character_maximum_length=col_info[4],
+                        numeric_precision=col_info[5],
+                        numeric_scale=col_info[6],
+                        ordinal_position=col_info[7],
+                        comment=col_info[8] or ""
+                    )
+                    fields.append(field)
+                
+                # Get primary key information using Snowflake-specific approach
+                try:
+                    # Try using SHOW PRIMARY KEYS command (Snowflake-specific)
+                    cursor.execute(f"SHOW PRIMARY KEYS IN TABLE {current_database}.{current_schema}.{table_name}")
+                    primary_keys_result = cursor.fetchall()
+                    primary_keys = [row[3] for row in primary_keys_result]  # Column name is in index 3
+                except Exception:
+                    try:
+                        # Fallback: Try using INFORMATION_SCHEMA with simpler query
+                        cursor.execute(f"""
+                            SELECT COLUMN_NAME
+                            FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS 
+                            WHERE CONSTRAINT_TYPE = 'PRIMARY KEY'
+                                AND TABLE_SCHEMA = '{current_schema}'
+                                AND TABLE_CATALOG = '{current_database}'
+                                AND TABLE_NAME = '{table_name}'
+                        """)
+                        primary_keys = [row[0] for row in cursor.fetchall()]
+                    except Exception:
+                        # If both fail, continue without primary key info
+                        primary_keys = []
+                
+                # Update primary key flags
+                for field in fields:
+                    if field.name in primary_keys:
+                        field.primary_key = True
+                
+                # Create table object
+                table = DatabaseTable(
+                    name=table_name,
+                    type=table_type.lower(),
+                    fields=fields,  # Changed from 'columns' to 'fields' to match schema
+                    row_count=row_count
+                )
+                tables.append(table)
+            
+            # Close connection
+            cursor.close()
+            conn.close()
+            
+            # Create unified schema
+            unified_schema = self._create_unified_schema_result(
+                tables, 
+                connection,
+                additional_info={
+                    "snowflake_version": snowflake_version,
+                    "current_database": current_database,
+                    "current_schema": current_schema,
+                    "warehouse": conn_params.get('warehouse', 'Unknown'),
+                    "role": conn_params.get('role', 'Unknown')
+                }
+            )
+            
+            return DatabaseSchemaResult(
+                status="success",
+                message=f"Successfully extracted schema from Snowflake database '{current_database}.{current_schema}'",
+                database_type=connection.database_type,
+                database_name=current_database,
+                tables=tables,
+                unified_schema=unified_schema
+            )
+            
+        except Exception as e:
+            return DatabaseSchemaResult(
+                status="error",
+                message=f"Failed to extract Snowflake schema: {str(e)}",
+                database_type=connection.database_type,
+                database_name=connection.database_name
+            )
+    
+    def _parse_snowflake_connection_string(self, connection_string: str) -> Dict[str, Any]:
+        """Parse Snowflake connection string with enhanced account identifier handling."""
+        try:
+            # Snowflake URL format: snowflake://user:password@account/database/schema?warehouse=WH&role=ROLE
+            parsed = urlparse(connection_string)
+            
+            # Extract account identifier - handle different formats
+            hostname = parsed.hostname
+            account = hostname.replace('.snowflakecomputing.com', '')
+            
+            # Handle different account identifier formats
+            # 1. If account has region (e.g., "qgkxkwg-mr95865.ap-south-1.aws"), use without region
+            # 2. This matches the logic used in connection_service.py
+            if '.ap-south-1.aws' in account:
+                # Use without region (this is what worked in connection test)
+                account = account.replace('.ap-south-1.aws', '')
+            elif '.aws' in account or '.azure' in account or '.gcp' in account:
+                # Other cloud regions - use account part only
+                parts = account.split('.')
+                account = parts[0]
+            
+            params = {
+                'user': parsed.username,
+                'password': parsed.password,
+                'account': account,  # Use the cleaned account identifier
+                'database': parsed.path.split('/')[1] if len(parsed.path.split('/')) > 1 else 'PHA',
+                'schema': parsed.path.split('/')[2] if len(parsed.path.split('/')) > 2 else 'PUBLIC'
+            }
+            
+            # Parse query parameters
+            query_params = parse_qs(parsed.query)
+            if 'warehouse' in query_params:
+                params['warehouse'] = query_params['warehouse'][0]
+            if 'role' in query_params:
+                params['role'] = query_params['role'][0]
+            
+            return params
+            
+        except Exception as e:
+            raise ValueError(f"Invalid Snowflake connection string format: {str(e)}")

@@ -6,17 +6,22 @@ from dotenv import load_dotenv
 from pymongo import MongoClient
 
 # Load environment variables from config directory
-config_dir = Path(__file__).parent.parent.parent / "config"
+config_dir = Path(__file__).parent.parent.parent.parent / "config"
 env_file = config_dir / ".env"
 
-# Ensure the .env file exists and load it
+# Ensure the .env file exists and load it with logging
 if env_file.exists():
+    print(f"Loading environment variables from: {env_file}")
     load_dotenv(env_file, override=True)
 else:
+    print(f"Warning: .env file not found at {env_file}")
     # Fallback: try to find .env file in current working directory
     fallback_env = Path.cwd() / "config" / ".env"
     if fallback_env.exists():
+        print(f"Loading environment variables from fallback: {fallback_env}")
         load_dotenv(fallback_env, override=True)
+    else:
+        print("Warning: No .env file found in fallback location either")
 
 
 class Settings:
@@ -56,6 +61,24 @@ class Settings:
     # Database connection timeout (working settings for MongoDB Atlas)
     DB_CONNECTION_TIMEOUT_MS: int = int(os.getenv("DB_CONNECTION_TIMEOUT_MS", "20000"))  # 20 seconds
     DB_SERVER_SELECTION_TIMEOUT_MS: int = int(os.getenv("DB_SERVER_SELECTION_TIMEOUT_MS", "10000"))  # 10 seconds
+    
+    # Store config directory for reference
+    config_dir = config_dir
+    
+    def validate_aws_credentials(self) -> dict:
+        """Validate AWS credentials are properly loaded."""
+        aws_access_key = os.getenv("AWS_ACCESS_KEY_ID")
+        aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+        aws_region = os.getenv("AWS_DEFAULT_REGION")
+        
+        return {
+            "aws_access_key_present": bool(aws_access_key),
+            "aws_access_key_length": len(aws_access_key) if aws_access_key else 0,
+            "aws_secret_key_present": bool(aws_secret_key),
+            "aws_secret_key_length": len(aws_secret_key) if aws_secret_key else 0,
+            "aws_region": aws_region or "not_set",
+            "config_file_loaded": env_file.exists()
+        }
     
     class Config:
         case_sensitive = True
