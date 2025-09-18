@@ -8,6 +8,7 @@ from pha.services.database_operation_service import DatabaseOperationService
 from pha.db.session import get_database_manager
 from pha.schemas.healthcare import HealthcareQueryResponse
 from pha.schemas.database_operations import QueryExecutionResponse
+from pha.utils.sql_cleaner import clean_sql_query
 
 
 class HealthcareQueryController:
@@ -91,6 +92,14 @@ class HealthcareQueryController:
                 patient_id=patient_id.strip(),
                 query_type=query_type
             )
+            
+            # Clean the generated SQL query to remove unwanted characters and fix quotes
+            if result.get("status") == "success" and result.get("generated_query"):
+                original_query = result["generated_query"]
+                cleaned_query = clean_sql_query(original_query)
+                result["generated_query"] = cleaned_query
+                # Optionally keep the original query for debugging
+                result["original_sql_query"] = original_query
             
             if result.get("status") == "failed":
                 raise HTTPException(status_code=500, detail=result.get("error"))
@@ -176,6 +185,14 @@ class HealthcareQueryController:
                 patient_id=patient_id.strip(),
                 query_type=query_type
             )
+            
+            # Clean the generated SQL query to remove unwanted characters and fix quotes
+            if query_result.get("status") == "success" and query_result.get("generated_query"):
+                original_query = query_result["generated_query"]
+                cleaned_query = clean_sql_query(original_query)
+                query_result["generated_query"] = cleaned_query
+                # Optionally keep the original query for debugging
+                query_result["original_sql_query"] = original_query
             
             if query_result.get("status") == "failed":
                 raise HTTPException(status_code=500, detail=query_result.get("error"))

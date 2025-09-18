@@ -53,26 +53,30 @@ class QueryGenerationOptimizer:
         """Analyze schema to identify proper table relationships."""
         tables = {}
         
-        # Extract table information
+        # Extract table information from unified schema structure
         unified_schema = schema_dict.get('unified_schema', {})
         if isinstance(unified_schema, dict) and 'tables' in unified_schema:
             schema_tables = unified_schema['tables']
         else:
-            schema_tables = []
+            # Fallback to direct tables structure
+            schema_tables = schema_dict.get('tables', [])
         
         # Build table information map
         for table in schema_tables:
             table_name = table.get('name', '')
             if table_name:
+                # Handle both 'fields' and 'columns' structures (unified schema uses 'columns')
+                table_fields = table.get('columns', table.get('fields', []))
+                
                 tables[table_name.lower()] = {
                     'name': table_name,
-                    'fields': table.get('fields', []),
+                    'fields': table_fields,
                     'primary_keys': [],
                     'foreign_keys': []
                 }
                 
                 # Identify primary and foreign keys
-                for field in table.get('fields', []):
+                for field in table_fields:
                     field_name = field.get('name', '').lower()
                     if field.get('primary_key', False):
                         tables[table_name.lower()]['primary_keys'].append(field_name)
@@ -145,48 +149,86 @@ class QueryGenerationOptimizer:
         
         prompt = f"""You are a {database_type.upper()} healthcare database expert. Generate an EFFICIENT, TARGETED query.
 
+🚨 ABSOLUTE SCHEMA COMPLIANCE REQUIREMENTS:
+- The database schema is provided below with COMPLETE table and column information
+- You MUST use ONLY the table names and column names that appear in the schema below
+- DO NOT assume any column names that are not explicitly listed in the schema
+- DO NOT use any predefined healthcare column names unless they appear in the actual schema
+- Before referencing ANY column in your query, verify it exists in the table's definition below
+- If a table or column doesn't exist in the schema below, DO NOT use it in your query
+- The schema below contains the COMPLETE and AUTHORITATIVE list of available tables and columns
+
+🏥 DATABASE SCHEMA - COMPLETE COLUMN LISTINGS:
 {self._create_schema_summary(schema_analysis)}
+
+⚠️ SCHEMA VERIFICATION WARNING: 
+If you cannot find proper columns in the schema above for your query, you MUST explain why instead of assuming column names. The schema above shows ALL available tables and their complete column lists.
 
 QUERY REQUIREMENTS FOR {database_type.upper()}:
 {self._create_database_specific_requirements(db_rules)}
 
 {self._create_query_type_requirements(query_type, schema_analysis, patient_id)}
 
-CRITICAL RULES:
+CRITICAL EXECUTION RULES:
 1. 🎯 BE SELECTIVE: Only join tables that are ESSENTIAL for the requested data
 2. 🔗 VALIDATE JOINS: Only create JOINs where foreign key relationships actually exist in the schema
 3. 📊 LIMIT RESULTS: Always include {db_rules['limit_syntax']} clause for performance  
 4. 🏷️ USE ALIASES: Use short, clear table aliases (p for patients, e for encounters, etc.)
-5. 🔍 VERIFY COLUMNS: Use only column names that exist in the provided schema
+5. 🔍 VERIFY COLUMNS: Use only column names that exist in the provided schema above
 6. ⚡ AVOID COMPLEXITY: Don't join more than 3-4 tables unless absolutely necessary
+7. 🚨 MANDATORY VERIFICATION: Before writing any SELECT, JOIN, or WHERE clause, verify every table and column name exists in the schema provided above
+8. 📋 COLUMN VALIDATION: If you reference a column that doesn't exist in the schema, explain why you cannot complete the query
 {patient_filter_instruction}
 
-Generate ONLY the SQL query - no explanations, no markdown, no extra text."""
+EXPECTED OUTPUT:
+- If valid columns exist: Generate ONLY the SQL query - no explanations, no markdown, no extra text
+- If schema lacks necessary columns: Explain what columns are missing and why query cannot be generated
+
+Generate your response:"""
         
         return prompt
     
     def _create_schema_summary(self, schema_analysis: Dict) -> str:
-        """Create a concise schema summary focusing on key relationships."""
+        """Create a comprehensive schema summary showing ALL available columns for verification."""
         tables = schema_analysis['tables']
         core_tables = schema_analysis['core_tables']
         
-        summary = "AVAILABLE TABLES:\n"
+        if not tables:
+            return "⚠️ ERROR: No table information found in schema. Cannot generate query without proper schema data."
         
-        # Show core tables first
+        summary = f"� COMPLETE DATABASE SCHEMA ({len(tables)} tables available):\n\n"
+        
+        # Show core tables first with ALL columns
+        core_tables_shown = 0
         for category, table_name in core_tables.items():
             if table_name.lower() in tables:
                 table_info = tables[table_name.lower()]
-                key_fields = [f['name'] for f in table_info['fields'][:5]]  # Show first 5 fields
-                summary += f"- {table_name} ({category}): {', '.join(key_fields)}\n"
+                all_fields = [f['name'] for f in table_info['fields'] if f.get('name')]  # Show ALL fields
+                if all_fields:  # Only show tables that have fields
+                    summary += f"🏥 CORE TABLE: {table_name} ({category.upper()})\n"
+                    summary += f"   Available Columns: {', '.join(all_fields)}\n"
+                    summary += f"   Total Columns: {len(all_fields)}\n\n"
+                    core_tables_shown += 1
         
-        # Show other important tables
+        # Show other important tables with ALL columns
         other_tables = [name for name in tables.keys() if name not in [t.lower() for t in core_tables.values()]]
-        if other_tables and len(core_tables) < 8:  # Only show others if we don't have too many core tables
-            summary += "\nOTHER AVAILABLE TABLES:\n"
-            for table_name in other_tables[:8]:  # Limit to prevent prompt bloat
+        if other_tables:
+            summary += f"📋 OTHER AVAILABLE TABLES ({len(other_tables)} tables):\n"
+            tables_shown = 0
+            for table_name in other_tables:
+                if tables_shown >= 15:  # Limit to prevent excessive prompt length
+                    summary += f"   ... and {len(other_tables) - tables_shown} more tables available\n"
+                    break
                 table_info = tables[table_name]
-                key_fields = [f['name'] for f in table_info['fields'][:3]]  # Show first 3 fields
-                summary += f"- {table_info['name']}: {', '.join(key_fields)}\n"
+                all_fields = [f['name'] for f in table_info['fields'] if f.get('name')]  # Show ALL fields
+                if all_fields:  # Only show tables that have fields
+                    summary += f"   TABLE: {table_info['name']}\n"
+                    summary += f"   Columns: {', '.join(all_fields)}\n"
+                    summary += f"   Total Columns: {len(all_fields)}\n\n"
+                    tables_shown += 1
+        
+        summary += f"📈 SCHEMA SUMMARY: {core_tables_shown} core healthcare tables + {len(other_tables)} additional tables\n"
+        summary += "🚨 IMPORTANT: Only use the table names and column names listed above. Do not assume any other columns exist.\n"
         
         return summary
     
@@ -453,6 +495,25 @@ class BedrockService:
             else:
                 schema_dict = schema
             
+            # Debug: Log schema structure for troubleshooting
+            print(f"🔍 Schema Debug Info:")
+            print(f"   Schema type: {type(schema_dict)}")
+            print(f"   Schema keys: {list(schema_dict.keys()) if isinstance(schema_dict, dict) else 'Not a dict'}")
+            if 'unified_schema' in schema_dict:
+                unified = schema_dict['unified_schema']
+                print(f"   Unified schema type: {type(unified)}")
+                print(f"   Unified schema keys: {list(unified.keys()) if isinstance(unified, dict) else 'Not a dict'}")
+                if isinstance(unified, dict) and 'tables' in unified:
+                    tables = unified['tables']
+                    print(f"   Tables count: {len(tables) if isinstance(tables, list) else 'Not a list'}")
+                    if isinstance(tables, list) and len(tables) > 0:
+                        first_table = tables[0]
+                        print(f"   First table structure: {list(first_table.keys()) if isinstance(first_table, dict) else 'Not a dict'}")
+                        if 'columns' in first_table:
+                            print(f"   First table columns count: {len(first_table['columns'])}")
+                        elif 'fields' in first_table:
+                            print(f"   First table fields count: {len(first_table['fields'])}")
+            
             # Initialize Bedrock client
             bedrock_client = self._get_bedrock_client()
             
@@ -467,6 +528,10 @@ class BedrockService:
                 query_type, 
                 database_type
             )
+            
+            # Debug: Log prompt length and first part
+            print(f"📝 Generated prompt length: {len(prompt)} characters")
+            print(f"📝 Prompt preview (first 500 chars): {prompt[:500]}...")
             
             # Try different model IDs
             model_ids = [
@@ -567,8 +632,19 @@ class BedrockService:
 🚨 CRITICAL SQL OUTPUT FORMAT:
 - MANDATORY: Always output the SQL query as raw SQL, not as a string.
 - ABSOLUTELY FORBIDDEN: Do not include backslashes (\\) to escape quotes anywhere in the query.
-- RESERVED KEYWORDS: If a reserved keyword is used as a table or column name, wrap it with the correct identifier quoting for the target database (e.g., "order" for PostgreSQL, `order` for MySQL, [order] for SQL Server).
+- COLUMN AND TABLE NAMES: Do NOT use quotes around regular column names and table names (e.g., use patient_id NOT "patient_id")
+- RESERVED KEYWORDS ONLY: Only use quotes around table or column names that are SQL reserved keywords (e.g., "order", "user", "group", "table")
+- STRING LITERALS: Use single quotes for string literals (e.g., WHERE patient_id = '123')
 - FINAL REQUIREMENT: The final output must be a syntactically valid query that can run directly in the database client.
+
+🚨 ABSOLUTE SCHEMA COMPLIANCE REQUIREMENTS:
+- MANDATORY: Use ONLY table names that appear in the detailed schema above
+- MANDATORY: Use ONLY column names that are explicitly listed for each table in the schema above
+- FORBIDDEN: Do NOT use any healthcare column names (like diagnosis_code, medication_name, etc.) unless they are explicitly listed in the actual schema
+- FORBIDDEN: Do NOT assume standard healthcare table structures - use only what is provided in the schema
+- VERIFICATION REQUIRED: Before writing any SELECT, JOIN, or WHERE clause, verify every table and column name exists in the schema provided above
+- TABLE EXISTENCE: If a table doesn't exist in the schema, do not include it in the query
+- COLUMN EXISTENCE: If a column doesn't exist in a table's schema definition, do not reference it
 
 🚨 CRITICAL JOIN REQUIREMENTS:
 - BEFORE creating any JOIN: Check the actual column names in BOTH tables from the schema
@@ -597,9 +673,10 @@ Requirements:
 - Handle UUID patient IDs properly as string values in single quotes
 - Ensure efficient query performance with proper indexing considerations
 - VERIFY: All table and column names in your query must exist in the schema provided above
-- IMPORTANT: For reserved keywords as table names (like "order", "user", "group"), wrap them in double quotes like "order", "user", "group"
+- IMPORTANT: Do NOT use quotes around regular column names and table names (e.g., use patient_id NOT "patient_id")
+- IMPORTANT: Only use quotes for SQL reserved keywords as table/column names (like "order", "user", "group")
 - IMPORTANT: Do not include any backslash or forward slash characters in your response
-- IMPORTANT: Use double quotes around table names that are SQL reserved words
+- IMPORTANT: Use single quotes for string literals, no quotes for regular identifiers
 """
         
         if query_type == "comprehensive":
@@ -610,24 +687,29 @@ You are a healthcare database expert. Generate a comprehensive SQL query to extr
 
 Patient ID: {escaped_patient_id}
 
-Generate a query that includes ALL relevant patient data from the database tables listed above.
-Look for tables that likely contain:
-- Patient demographics (look for tables with patient information)
-- Medical encounters/visits (look for encounter/visit tables)
-- Diagnoses and medical conditions (look for diagnosis/condition tables)
-- Procedures and treatments (look for procedure tables)
-- Medications (look for medication/drug tables)
-- Lab results and vital signs (look for laboratory/vital tables)
-- Billing information (look for billing/financial tables)
+🚨 CRITICAL SCHEMA COMPLIANCE RULES:
+- Use ONLY the table names listed in the detailed schema above
+- Use ONLY the column names listed for each table in the schema above
+- DO NOT assume any column names that are not explicitly listed in the schema
+- DO NOT use any predefined healthcare column names unless they appear in the actual schema
+- Before referencing ANY column in your query, verify it exists in the table's column list from the schema above
+
+Generate a query using ONLY the tables and columns from the schema provided above.
+You must SELECT from tables that actually exist in the schema and JOIN on columns that actually exist.
+
+QUERY CONSTRUCTION RULES:
+1. Start with a main table that contains patient information (verify patient_id column exists)
+2. JOIN only to tables that have matching foreign key columns (verify both columns exist in schema)
+3. SELECT only columns that are explicitly listed in each table's column definition above
+4. Use proper table aliases for readability
 
 Use LEFT JOINs to ensure all patient data is retrieved even if some tables have no matching records.
-CRITICAL: Use ONLY the exact table names from the schema provided above.
 
-SPECIAL NOTE: If any table name is a SQL reserved word (like order, user, group, table, etc.), wrap it in double quotes like "order" not 'order' and never use backslashes or forward slashes.
+SPECIAL NOTE: Do NOT use quotes around regular column/table names (e.g., use patient_id NOT "patient_id"). Only use quotes for SQL reserved words (like "order", "user", "group"). Never use backslashes or forward slashes.
 
 {base_requirements}
 
-Generate the SQL query now using the actual table names from the schema.
+Generate the SQL query now using ONLY the actual table and column names from the schema above.
 """
         
         elif query_type == "clinical":
@@ -638,16 +720,29 @@ You are a healthcare database expert. Generate a clinical-focused SQL query for 
 
 Patient ID: {escaped_patient_id}
 
-Focus on clinical data using ONLY the table names from the schema above:
-- Patient demographics (look for patient-related tables in the schema)
-- Diagnoses and medical conditions (look for diagnosis/condition tables)
-- Procedures and treatments (look for procedure tables)
-- Medications and prescriptions (look for medication tables)
-- Lab results and vital signs (look for laboratory/vital tables)
-- Clinical assessments (look for clinical/assessment tables)
+🚨 CRITICAL SCHEMA COMPLIANCE RULES:
+- Use ONLY the table names listed in the detailed schema above
+- Use ONLY the column names listed for each table in the schema above  
+- DO NOT assume any column names that are not explicitly listed in the schema
+- DO NOT use any predefined healthcare column names unless they appear in the actual schema
+- Before referencing ANY column in your query, verify it exists in the table's column list from the schema above
+
+Focus on clinical data using ONLY the tables and columns from the schema above.
+Look at the actual table names and columns provided in the schema to identify:
+- Which table contains patient demographics (verify it has patient_id and other patient columns)
+- Which tables contain medical conditions/diagnoses (verify column names)
+- Which tables contain procedures/treatments (verify column names)
+- Which tables contain medications (verify column names)
+- Which tables contain lab results/observations (verify column names)
+
+QUERY CONSTRUCTION RULES:
+1. Start with a patient table (verify patient_id column exists in the schema)
+2. JOIN only to tables that have matching columns listed in their schema definitions
+3. SELECT only columns that are explicitly listed in each table's column definition above
+4. Use proper table aliases for readability
 
 CRITICAL: Use ONLY the exact table names from the schema provided above.
-SPECIAL NOTE: If any table name is a SQL reserved word (like order, user, group, table, etc.), wrap it in double quotes like "order" not 'order' and never use backslashes or forward slashes.
+SPECIAL NOTE: Do NOT use quotes around regular column/table names (e.g., use patient_id NOT "patient_id"). Only use quotes for SQL reserved words (like "order", "user", "group"). Never use backslashes or forward slashes.
 
 {base_requirements}
 """
@@ -660,15 +755,29 @@ You are a healthcare database expert. Generate a billing-focused SQL query for p
 
 Patient ID: {escaped_patient_id}
 
-Focus on financial/billing data using ONLY the table names from the schema above:
-- Patient demographics (look for patient-related tables in the schema)
-- Bills and charges (look for billing/charge tables)
-- Insurance claims and payments (look for insurance/claim tables)
-- Payment history (look for payment/financial tables)
-- Financial transactions (look for transaction tables)
+🚨 CRITICAL SCHEMA COMPLIANCE RULES:
+- Use ONLY the table names listed in the detailed schema above
+- Use ONLY the column names listed for each table in the schema above
+- DO NOT assume any column names that are not explicitly listed in the schema
+- DO NOT use any predefined healthcare column names unless they appear in the actual schema
+- Before referencing ANY column in your query, verify it exists in the table's column list from the schema above
+
+Focus on financial/billing data using ONLY the tables and columns from the schema above.
+Look at the actual table names and columns provided in the schema to identify:
+- Which table contains patient demographics (verify it has patient_id and other patient columns)
+- Which tables contain billing/financial information (verify column names)
+- Which tables contain insurance/claim data (verify column names) 
+- Which tables contain payment information (verify column names)
+- Which tables contain financial transactions (verify column names)
+
+QUERY CONSTRUCTION RULES:
+1. Start with a patient table (verify patient_id column exists in the schema)
+2. JOIN only to tables that have matching columns listed in their schema definitions
+3. SELECT only columns that are explicitly listed in each table's column definition above
+4. Use proper table aliases for readability
 
 CRITICAL: Use ONLY the exact table names from the schema provided above.
-SPECIAL NOTE: If any table name is a SQL reserved word (like order, user, group, table, etc.), wrap it in double quotes like "order" not 'order' and never use backslashes or forward slashes.
+SPECIAL NOTE: Do NOT use quotes around regular column/table names (e.g., use patient_id NOT "patient_id"). Only use quotes for SQL reserved words (like "order", "user", "group"). Never use backslashes or forward slashes.
 
 {base_requirements}
 """
@@ -681,13 +790,27 @@ You are a healthcare database expert. Generate a basic SQL query for patient ID 
 
 Patient ID: {escaped_patient_id}
 
-Focus on essential patient information using ONLY the table names from the schema above:
-- Basic patient demographics and identifiers
-- Contact information
-- Essential medical record information
+🚨 CRITICAL SCHEMA COMPLIANCE RULES:
+- Use ONLY the table names listed in the detailed schema above
+- Use ONLY the column names listed for each table in the schema above
+- DO NOT assume any column names that are not explicitly listed in the schema
+- DO NOT use any predefined healthcare column names unless they appear in the actual schema
+- Before referencing ANY column in your query, verify it exists in the table's column list from the schema above
+
+Focus on essential patient information using ONLY the tables and columns from the schema above.
+Look at the actual table names and columns provided in the schema to identify:
+- Which table contains patient demographics (verify it has patient_id and demographic columns)
+- Which columns contain basic patient identifiers (verify column names)
+- Which columns contain contact information (verify column names)
+
+QUERY CONSTRUCTION RULES:
+1. Start with a patient table (verify patient_id column exists in the schema)
+2. SELECT only columns that are explicitly listed in the patient table's column definition above
+3. Keep the query simple with minimal JOINs for basic information only
+4. Use proper table aliases for readability
 
 CRITICAL: Use ONLY the exact table names from the schema provided above.
-SPECIAL NOTE: If any table name is a SQL reserved word (like order, user, group, table, etc.), wrap it in double quotes like "order" not 'order' and never use backslashes or forward slashes.
+SPECIAL NOTE: Do NOT use quotes around regular column/table names (e.g., use patient_id NOT "patient_id"). Only use quotes for SQL reserved words (like "order", "user", "group"). Never use backslashes or forward slashes.
 
 {base_requirements}
 """
@@ -865,8 +988,20 @@ QUOTING RULES FOR THIS DATABASE:
 Database: {unified.get('database_info', {}).get('name', 'unknown')}
 Total Tables: {len(unified.get('tables', []))}
 
-🔍 DETAILED TABLE SCHEMA (verify column names before creating JOINs):
+� SCHEMA COMPLIANCE WARNING:
+The following is the COMPLETE and EXACT schema for this database. 
+DO NOT use any table or column names that are not explicitly listed below.
+DO NOT assume standard healthcare schema structures.
+ONLY use the tables and columns that appear in this schema definition.
+
+🔍 COMPLETE DATABASE SCHEMA (use ONLY these tables and columns):
 {chr(10).join(tables_info)}
+
+🚨 CRITICAL COLUMN VERIFICATION RULES:
+- Every column you reference in SELECT, JOIN, WHERE, ORDER BY clauses must be listed above
+- Before writing any table.column reference, find that table in the schema above and verify the column exists
+- If you cannot find a table or column in the schema above, do not use it in your query
+- The schema above is complete - if something is not listed, it does not exist in the database
 
 🚨 IMPORTANT JOIN VALIDATION RULES:
 - Before creating any JOIN between tables, verify that BOTH the foreign key column and primary key column exist in the schema above
