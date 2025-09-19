@@ -629,11 +629,21 @@ class BedrockService:
         schema_info = self._extract_schema_info(schema_dict)
         
         base_requirements = """
+🚨🚨🚨 HIGHEST PRIORITY - RESERVED KEYWORD QUOTING 🚨🚨🚨
+⚡ ABSOLUTE RULE: ANY column name that matches a SQL reserved keyword MUST be enclosed in double quotes
+⚡ CRITICAL KEYWORDS TO ALWAYS QUOTE: "start", "end", "desc", "order", "user", "group", "table", "key", "value", "index", "count", "date", "time", "year", "month", "day", "sum", "avg", "max", "min", "and", "or", "not", "in", "exists", "case", "when", "then", "else", "join", "left", "right", "inner", "outer", "select", "from", "where", "having", "distinct", "describe", "limit", "offset"
+⚡ EXAMPLES OF CORRECT QUOTING:
+  - Column named START → e."START" (MANDATORY)
+  - Column named DESC → e."DESC" (MANDATORY) 
+  - Column named ORDER → o."ORDER" (MANDATORY)
+  - Regular column patient_id → p.patient_id (no quotes)
+
 🚨 CRITICAL SQL OUTPUT FORMAT:
 - MANDATORY: Always output the SQL query as raw SQL, not as a string.
 - ABSOLUTELY FORBIDDEN: Do not include backslashes (\\) to escape quotes anywhere in the query.
 - COLUMN AND TABLE NAMES: Do NOT use quotes around regular column names and table names (e.g., use patient_id NOT "patient_id")
-- RESERVED KEYWORDS ONLY: Only use quotes around table or column names that are SQL reserved keywords (e.g., "order", "user", "group", "table")
+- RESERVED KEYWORDS ONLY: Use double quotes ONLY for column or table names that are SQL reserved keywords
+- SELECTIVE QUOTING: If a column name exactly matches a reserved keyword (e.g., a column named "start" or "desc"), then and ONLY then use double quotes for that specific column name
 - STRING LITERALS: Use single quotes for string literals (e.g., WHERE patient_id = '123')
 - FINAL REQUIREMENT: The final output must be a syntactically valid query that can run directly in the database client.
 
@@ -685,6 +695,10 @@ You are a healthcare database expert. Generate a comprehensive SQL query to extr
 
 {schema_info}
 
+🚨🚨🚨 IMMEDIATE ACTION REQUIRED 🚨🚨🚨
+⚡ BEFORE WRITING ANY QUERY: If you see a column named "START" or "DESC" or "ORDER" in the schema, you MUST write it as e."START", e."DESC", o."ORDER" with double quotes!
+⚡ These are SQL reserved keywords and will cause syntax errors if not quoted!
+
 Patient ID: {escaped_patient_id}
 
 🚨 CRITICAL SCHEMA COMPLIANCE RULES:
@@ -705,7 +719,8 @@ QUERY CONSTRUCTION RULES:
 
 Use LEFT JOINs to ensure all patient data is retrieved even if some tables have no matching records.
 
-SPECIAL NOTE: Do NOT use quotes around regular column/table names (e.g., use patient_id NOT "patient_id"). Only use quotes for SQL reserved words (like "order", "user", "group"). Never use backslashes or forward slashes.
+🚨 CRITICAL QUOTING REMINDER: Columns named START and DESC are SQL reserved keywords and MUST be quoted!
+SPECIAL NOTE: Do NOT use quotes around regular column/table names (e.g., use patient_id NOT "patient_id"). Use double quotes ONLY for column names that are SQL reserved keywords (like "start", "desc", "order", "user", "group", "table", "key", "value", "index", "count", "date", "time", "limit", "offset", "select", "from", "where", etc.). If a column name exactly matches a reserved keyword (e.g., columns named START, DESC, LIMIT), then and ONLY then use double quotes for that specific column name. EXAMPLES: e."START", e."DESC", o."ORDER". Never use backslashes or forward slashes.
 
 {base_requirements}
 
@@ -742,7 +757,8 @@ QUERY CONSTRUCTION RULES:
 4. Use proper table aliases for readability
 
 CRITICAL: Use ONLY the exact table names from the schema provided above.
-SPECIAL NOTE: Do NOT use quotes around regular column/table names (e.g., use patient_id NOT "patient_id"). Only use quotes for SQL reserved words (like "order", "user", "group"). Never use backslashes or forward slashes.
+🚨 CRITICAL QUOTING REMINDER: Columns named START and DESC are SQL reserved keywords and MUST be quoted!
+SPECIAL NOTE: Do NOT use quotes around regular column/table names (e.g., use patient_id NOT "patient_id"). Use double quotes ONLY for column names that are SQL reserved keywords (like "start", "desc", "order", "user", "group", "table", "key", "value", "index", "count", "date", "time", "limit", "offset", "select", "from", "where", etc.). If a column name exactly matches a reserved keyword (e.g., columns named START, DESC, LIMIT), then and ONLY then use double quotes for that specific column name. EXAMPLES: e."START", e."DESC", o."ORDER". Never use backslashes or forward slashes.
 
 {base_requirements}
 """
@@ -777,7 +793,8 @@ QUERY CONSTRUCTION RULES:
 4. Use proper table aliases for readability
 
 CRITICAL: Use ONLY the exact table names from the schema provided above.
-SPECIAL NOTE: Do NOT use quotes around regular column/table names (e.g., use patient_id NOT "patient_id"). Only use quotes for SQL reserved words (like "order", "user", "group"). Never use backslashes or forward slashes.
+🚨 CRITICAL QUOTING REMINDER: Columns named START and DESC are SQL reserved keywords and MUST be quoted!
+SPECIAL NOTE: Do NOT use quotes around regular column/table names (e.g., use patient_id NOT "patient_id"). Use double quotes ONLY for column names that are SQL reserved keywords (like "start", "desc", "order", "user", "group", "table", "key", "value", "index", "count", "date", "time", "limit", "offset", "select", "from", "where", etc.). If a column name exactly matches a reserved keyword (e.g., columns named START, DESC, LIMIT), then and ONLY then use double quotes for that specific column name. EXAMPLES: e."START", e."DESC", o."ORDER". Never use backslashes or forward slashes.
 
 {base_requirements}
 """
@@ -810,7 +827,8 @@ QUERY CONSTRUCTION RULES:
 4. Use proper table aliases for readability
 
 CRITICAL: Use ONLY the exact table names from the schema provided above.
-SPECIAL NOTE: Do NOT use quotes around regular column/table names (e.g., use patient_id NOT "patient_id"). Only use quotes for SQL reserved words (like "order", "user", "group"). Never use backslashes or forward slashes.
+🚨 CRITICAL QUOTING REMINDER: Columns named START and DESC are SQL reserved keywords and MUST be quoted!
+SPECIAL NOTE: Do NOT use quotes around regular column/table names (e.g., use patient_id NOT "patient_id"). Use double quotes ONLY for column names that are SQL reserved keywords (like "start", "desc", "order", "user", "group", "table", "key", "value", "index", "count", "date", "time", "limit", "offset", "select", "from", "where", etc.). If a column name exactly matches a reserved keyword (e.g., columns named START, DESC, LIMIT), then and ONLY then use double quotes for that specific column name. EXAMPLES: e."START", e."DESC", o."ORDER". Never use backslashes or forward slashes.
 
 {base_requirements}
 """
@@ -1029,11 +1047,13 @@ Database Schema:
         """Get database-specific quoting rules."""
         db_type_lower = db_type.lower()
         if 'mysql' in db_type_lower or 'mariadb' in db_type_lower:
-            return "MySQL/MariaDB: Use backticks for reserved keywords: `order`, `user`, `table`\nExample: SELECT p.patient_id, o.`order_id` FROM patients p LEFT JOIN `order` o"
+            return "MySQL/MariaDB: Use backticks ONLY for column names that are reserved keywords like: `order`, `user`, `group`, `table`, `key`, `value`, `index`, `count`, `date`, `time`, `start`, `desc`, `select`, `from`, `where`\nExample: SELECT p.patient_id, e.`start` FROM patients p LEFT JOIN encounters e WHERE p.patient_name = 'John'"
         elif 'sql server' in db_type_lower or 'mssql' in db_type_lower:
-            return "SQL Server: Use brackets for reserved keywords: [order], [user], [table]\nExample: SELECT p.patient_id, o.[order_id] FROM patients p LEFT JOIN [order] o"
+            return "SQL Server: Use brackets ONLY for column names that are reserved keywords like: [order], [user], [group], [table], [key], [value], [index], [count], [date], [time], [start], [desc], [select], [from], [where]\nExample: SELECT p.patient_id, e.[start] FROM patients p LEFT JOIN encounters e WHERE p.patient_name = 'John'"
+        elif 'snowflake' in db_type_lower:
+            return "Snowflake: Use double quotes ONLY for column names that are reserved keywords like: \"order\", \"user\", \"group\", \"table\", \"key\", \"value\", \"index\", \"count\", \"date\", \"time\", \"start\", \"desc\", \"select\", \"from\", \"where\", \"limit\", \"offset\"\nExample: SELECT p.patient_id, e.\"start\" FROM patients p LEFT JOIN encounters e WHERE p.patient_name = 'John'"
         else:  # PostgreSQL default
-            return "PostgreSQL: Use double quotes for reserved keywords: \"order\", \"user\", \"table\"\nExample: SELECT p.patient_id, o.\"order_id\" FROM patients p LEFT JOIN \"order\" o"
+            return "PostgreSQL: Use double quotes ONLY for column names that are reserved keywords like: \"order\", \"user\", \"group\", \"table\", \"key\", \"value\", \"index\", \"count\", \"date\", \"time\", \"start\", \"desc\", \"select\", \"from\", \"where\"\nExample: SELECT p.patient_id, e.\"start\" FROM patients p LEFT JOIN encounters e WHERE p.patient_name = 'John'"
     
     def _extract_mongodb_schema_info(self, schema_dict: Dict) -> str:
         """Extract and format MongoDB schema information for the prompt."""
