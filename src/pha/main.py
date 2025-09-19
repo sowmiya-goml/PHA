@@ -21,14 +21,18 @@ async def lifespan(app: FastAPI):
     try:
         # Attempt to connect to MongoDB asynchronously
         await db_manager.connect()
+        print("✅ PHA Server ready - Dashboard endpoints use real database connections only!")
     except Exception as e:
         print(f"Failed to initialize database connection: {e}")
         
     yield
     
     # Shutdown
-    if db_manager.client:
-        db_manager.close()
+    try:
+        if db_manager.client:
+            db_manager.close()
+    except Exception as e:
+        print(f"Error during shutdown: {e}")
 
 
 # Create FastAPI application with lifespan events
@@ -94,15 +98,21 @@ async def database_status():
 @app.get("/health")
 async def health_check():
     """Health check endpoint with database status."""
-    database_status = "connected" if db_manager.is_connected() else "disconnected"
+    try:
+        mongodb_status = "connected" if db_manager.is_connected() else "disconnected"
+    except Exception:
+        mongodb_status = "error"
     
     return {
         "status": "healthy",
-        "timestamp": "2025-08-29T00:00:00Z",
-        "database": database_status,
+        "timestamp": "2025-09-19T00:00:00Z",
+        "databases": {
+            "mongodb": mongodb_status
+        },
         "services": {
             "api": "running",
-            "mongodb": database_status
+            "mongodb": mongodb_status,
+            "dashboard": "real_database_only"
         }
     }
 
