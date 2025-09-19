@@ -1,4 +1,4 @@
-"""Database connection and session management."""
+﻿"""Database connection and session management."""
 
 import asyncio
 from pymongo import MongoClient

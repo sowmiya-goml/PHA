@@ -256,7 +256,7 @@ def test_optimizer():
                         {'name': 'ID', 'type': 'VARCHAR', 'primary_key': True},
                         {'name': 'PATIENT', 'type': 'VARCHAR'},
                         {'name': 'CODE', 'type': 'VARCHAR'},
-                        {'name': 'DESCRIPTION', 'type': 'VARCHAR'}
+                        {'name': 'DESCRIPTIONHey, Cortana. ', 'type': 'VARCHAR'}
                     ]
                 }
             ]

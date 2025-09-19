@@ -1,5 +1,6 @@
 ﻿"""Healthcare query generation router with class-based structure."""
 
+import re
 from fastapi import APIRouter, Query, HTTPException, Depends
 import json
 
@@ -86,23 +87,36 @@ class HealthcareQueryController:
             }
             
             bedrock_service = BedrockService(db_manager)
-            result = bedrock_service.generate_healthcare_query(
-                schema=schema_dict,
-                patient_id=patient_id.strip(),
-                query_type=query_type
+            result = await bedrock_service.generate_healthcare_query(
+                connection_id=connection_id,
+                query_request=f"{query_type} healthcare query for patient {patient_id.strip()}",
+                patient_id=patient_id.strip()
             )
             
-            if result.get("status") == "failed":
+            if result.get("status") == "error":
                 raise HTTPException(status_code=500, detail=result.get("error"))
             
-            result["connection_info"] = {
-                "connection_id": connection_id,
-                "database_type": schema_result.database_type,
-                "database_name": schema_result.database_name,
-                "total_tables": schema_result.unified_schema.get("summary", {}).get("total_tables", 0)
+            # Map the new response format to the expected schema
+            response = {
+                "generated_query": result.get("query", ""),
+                "patient_id": patient_id.strip(),
+                "query_type": query_type,
+                "model_used": result.get("metadata", {}).get("model_id", "anthropic.claude-3.5-sonnet"),
+                "schema_tables_count": schema_result.unified_schema.get("summary", {}).get("total_tables", 0),
+                "status": result.get("status", "success"),
+                "timestamp": result.get("timestamp", ""),
+                "connection_info": {
+                    "connection_id": connection_id,
+                    "database_type": schema_result.database_type,
+                    "database_name": schema_result.database_name,
+                    "total_tables": schema_result.unified_schema.get("summary", {}).get("total_tables", 0)
+                }
             }
             
-            return result
+            # Clean the query with regex
+            response["generated_query"] = re.sub(r'\\"', '"', response["generated_query"]) 
+            print(response["generated_query"])
+            return response
             
         except HTTPException:
             raise
@@ -171,13 +185,13 @@ class HealthcareQueryController:
             }
             
             bedrock_service = BedrockService(db_manager)
-            query_result = bedrock_service.generate_healthcare_query(
-                schema=schema_dict,
-                patient_id=patient_id.strip(),
-                query_type=query_type
+            query_result = await bedrock_service.generate_healthcare_query(
+                connection_id=connection_id,
+                query_request=f"{query_type} healthcare query for patient {patient_id.strip()}",
+                patient_id=patient_id.strip()
             )
             
-            if query_result.get("status") == "failed":
+            if query_result.get("status") == "error":
                 raise HTTPException(status_code=500, detail=query_result.get("error"))
             
             # Step 2: Execute the generated query
@@ -188,7 +202,7 @@ class HealthcareQueryController:
             
             try:
                 db_operation_service = DatabaseOperationService(db_manager)
-                generated_query = query_result.get("generated_query", "")
+                generated_query = query_result.get("query", "")
                 
                 if generated_query:
                     execution_results = await db_operation_service.execute_query(
@@ -216,11 +230,11 @@ class HealthcareQueryController:
             
             response = QueryExecutionResponse(
                 # Query generation info (from existing functionality)
-                generated_query=query_result.get("generated_query", ""),
+                generated_query=query_result.get("query", ""),
                 patient_id=patient_id,
                 query_type=query_type,
-                model_used=query_result.get("model_used", "unknown"),
-                schema_tables_count=query_result.get("schema_tables_count", 0),
+                model_used=query_result.get("metadata", {}).get("model_id", "anthropic.claude-3.5-sonnet"),
+                schema_tables_count=schema_result.unified_schema.get("summary", {}).get("total_tables", 0),
                 status="success" if not execution_errors else "partial_success",
                 timestamp=query_result.get("timestamp", ""),
                 connection_info=connection_info,

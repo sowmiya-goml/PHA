@@ -23,7 +23,10 @@ class HealthcareQueryResponse(BaseModel):
     status: str = Field(..., description="Query generation status")
     timestamp: str = Field(..., description="ISO timestamp when query was generated")
     connection_info: ConnectionInfo = Field(..., description="Database connection information")
-
+    
+    
+    class config:
+        populate_by_name = True
 
 class HealthcareQueryError(BaseModel):
     """Schema for healthcare query generation error response."""
