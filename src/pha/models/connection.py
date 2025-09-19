@@ -90,7 +90,7 @@ class DatabaseConnection:
             database_type=data["database_type"],
             connection_string=connection_string,
             additional_notes=data.get("additional_notes"),
-            # Legacy fields for backward compatibility
+            # Legacy fields
             host=data.get("host"),
             port=data.get("port"),
             database_name=data.get("database_name"),

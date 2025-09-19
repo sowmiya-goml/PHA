@@ -1,8 +1,10 @@
 """Database connection service layer for business logic."""
 
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from bson import ObjectId
 from datetime import datetime
+import urllib.parse
+import re
 
 from pha.models.connection import DatabaseConnection
 from pha.schemas.connection import (
@@ -25,22 +27,52 @@ class ConnectionService:
         self.db_manager = db_manager
         self.schema_extractor = DatabaseSchemaExtractor()
     
+    def _auto_detect_database_type(self, connection_string: str) -> str:
+        """Auto-detect database type from connection string."""
+        connection_string_lower = connection_string.lower()
+        
+        if connection_string_lower.startswith('postgresql://') or connection_string_lower.startswith('postgres://'):
+            return 'postgresql'
+        elif connection_string_lower.startswith('mysql://'):
+            return 'mysql'  
+        elif connection_string_lower.startswith('mongodb://') or connection_string_lower.startswith('mongodb+srv://'):
+            return 'mongodb'
+        elif connection_string_lower.startswith('snowflake://'):
+            return 'snowflake'
+        elif connection_string_lower.startswith('oracle://'):
+            return 'oracle'
+        elif 'server=' in connection_string_lower and ('database=' in connection_string_lower or 'initial catalog=' in connection_string_lower):
+            return 'sqlserver'
+        else:
+            # If we can't detect, keep the original type
+            return None
+    
+    def _is_supported_db_type(self, db_type: str) -> bool:
+        """Check if a database type is supported."""
+        supported_types = [
+            "mysql", "aurora-mysql",
+            "postgresql", "aurora-postgresql",
+            "mongodb",
+            "oracle", "oracle-db",
+            "sql-server", "mssql", "sqlserver",
+            "snowflake"
+        ]
+        return db_type in supported_types
+    
     async def create_connection(self, connection_data: DatabaseConnectionCreate) -> DatabaseConnectionResponse:
         """Create a new database connection."""
         collection = self.db_manager.get_connections_collection()
         
-        # Create connection model
+        # Auto-generate connection name if not provided
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        connection_name = f"{connection_data.database_type.lower()}_connection_{timestamp}"
+        
+        # Create connection model with only essential fields
         connection = DatabaseConnection(
-            connection_name=connection_data.connection_name,
+            connection_name=connection_name,
             database_type=connection_data.database_type,
-            connection_string=connection_data.connection_string,
-            additional_notes=connection_data.additional_notes,
-            # Legacy fields for backward compatibility
-            host=connection_data.host,
-            port=connection_data.port,
-            database_name=connection_data.database_name,
-            username=connection_data.username,
-            password=connection_data.password
+            connection_string=connection_data.connection_string
         )
         
         # Insert into database
@@ -49,17 +81,10 @@ class ConnectionService:
         connection._id = result.inserted_id
         
         return DatabaseConnectionResponse(
-            id=str(connection._id),
+            id=str(result.inserted_id),
             connection_name=connection.connection_name,
             database_type=connection.database_type,
             connection_string=connection.connection_string,
-            additional_notes=connection.additional_notes,
-            # Legacy fields
-            host=connection.host,
-            port=connection.port,
-            database_name=connection.database_name,
-            username=connection.username,
-            password=connection.password,
             created_at=connection.created_at,
             updated_at=connection.updated_at
         )
@@ -76,20 +101,13 @@ class ConnectionService:
                 connection_name=connection.connection_name,
                 database_type=connection.database_type,
                 connection_string=connection.connection_string,
-                additional_notes=connection.additional_notes,
-                # Legacy fields
-                host=connection.host,
-                port=connection.port,
-                database_name=connection.database_name,
-                username=connection.username,
-                password=connection.password,
                 created_at=connection.created_at,
                 updated_at=connection.updated_at
             ))
         
         return connections
     
-    async def get_connection_by_id(self, connection_id: str) -> Optional[DatabaseConnectionResponse]:
+    async def get_connection_by_id(self, connection_id: str) -> Optional[DatabaseConnection]:
         """Get a database connection by ID."""
         collection = self.db_manager.get_connections_collection()
         
@@ -99,21 +117,7 @@ class ConnectionService:
                 return None
             
             connection = DatabaseConnection.from_dict(doc)
-            return DatabaseConnectionResponse(
-                id=str(connection._id),
-                connection_name=connection.connection_name,
-                database_type=connection.database_type,
-                connection_string=connection.connection_string,
-                additional_notes=connection.additional_notes,
-                # Legacy fields
-                host=connection.host,
-                port=connection.port,
-                database_name=connection.database_name,
-                username=connection.username,
-                password=connection.password,
-                created_at=connection.created_at,
-                updated_at=connection.updated_at
-            )
+            return connection
         except Exception:
             return None
     
@@ -207,6 +211,99 @@ class ConnectionService:
                 message=f"Error testing connection: {str(e)}"
             )
     
+    def _parse_connection_string(self, connection: DatabaseConnection) -> dict:
+        """Parse connection string to extract connection parameters."""
+        import re
+        from urllib.parse import urlparse, parse_qs
+        
+        # If legacy fields are available and not None, use them
+        if all([connection.host, connection.port, connection.username, connection.database_name]):
+            return {
+                'host': connection.host,
+                'port': connection.port,
+                'username': connection.username,
+                'password': connection.password or '',
+                'database_name': connection.database_name
+            }
+        
+        # Parse the connection string
+        connection_string = connection.connection_string
+        
+        try:
+            # Handle different connection string formats
+            if connection_string.startswith(('postgresql://', 'postgres://')):
+                parsed = urlparse(connection_string)
+                return {
+                    'host': parsed.hostname or 'localhost',
+                    'port': parsed.port or 5432,
+                    'username': parsed.username or '',
+                    'password': parsed.password or '',
+                    'database_name': parsed.path.lstrip('/') if parsed.path else ''
+                }
+            elif connection_string.startswith('mysql://'):
+                parsed = urlparse(connection_string)
+                return {
+                    'host': parsed.hostname or 'localhost',
+                    'port': parsed.port or 3306,
+                    'username': parsed.username or '',
+                    'password': parsed.password or '',
+                    'database_name': parsed.path.lstrip('/') if parsed.path else ''
+                }
+            elif connection_string.startswith(('mongodb://', 'mongodb+srv://')):
+                parsed = urlparse(connection_string)
+                return {
+                    'host': parsed.hostname or 'localhost',
+                    'port': parsed.port or 27017,
+                    'username': parsed.username or '',
+                    'password': parsed.password or '',
+                    'database_name': parsed.path.lstrip('/') if parsed.path else ''
+                }
+            elif 'Server=' in connection_string:  # SQL Server format
+                # Parse SQL Server connection string
+                params = {}
+                for pair in connection_string.split(';'):
+                    if '=' in pair:
+                        key, value = pair.split('=', 1)
+                        params[key.strip().lower()] = value.strip()
+                
+                return {
+                    'host': params.get('server', 'localhost').split(',')[0],
+                    'port': int(params.get('server', 'localhost').split(',')[1]) if ',' in params.get('server', '') else 1433,
+                    'username': params.get('user id', ''),
+                    'password': params.get('password', ''),
+                    'database_name': params.get('database', '')
+                }
+            else:
+                # Try to parse as generic format: protocol://user:pass@host:port/database
+                match = re.match(r'(\w+)://(?:([^:@]+)(?::([^@]*))?@)?([^:/]+)(?::(\d+))?(?:/(.+))?', connection_string)
+                if match:
+                    protocol, username, password, host, port, database = match.groups()
+                    return {
+                        'host': host or 'localhost',
+                        'port': int(port) if port else 3306,
+                        'username': username or '',
+                        'password': password or '',
+                        'database_name': database or ''
+                    }
+                else:
+                    # Fallback to legacy fields if parsing fails
+                    return {
+                        'host': connection.host or 'localhost',
+                        'port': connection.port or 3306,
+                        'username': connection.username or '',
+                        'password': connection.password or '',
+                        'database_name': connection.database_name or ''
+                    }
+        except Exception:
+            # Fallback to legacy fields if parsing fails
+            return {
+                'host': connection.host or 'localhost',
+                'port': connection.port or 3306,
+                'username': connection.username or '',
+                'password': connection.password or '',
+                'database_name': connection.database_name or ''
+            }
+
     async def _test_database_connection(self, connection: DatabaseConnection) -> ConnectionTestResult:
         """Test the actual database connection based on type."""
         db_type = connection.database_type.lower()
@@ -231,12 +328,16 @@ class ConnectionService:
         """Test MySQL connection."""
         try:
             import mysql.connector
+            
+            # Parse connection parameters
+            params = self._parse_connection_string(connection)
+            
             conn = mysql.connector.connect(
-                host=connection.host,
-                port=connection.port,
-                user=connection.username,
-                password=connection.password,
-                database=connection.database_name
+                host=params['host'],
+                port=params['port'],
+                user=params['username'],
+                password=params['password'],
+                database=params['database_name']
             )
             conn.close()
             return ConnectionTestResult(status="success", message="MySQL connection successful")
@@ -253,25 +354,28 @@ class ConnectionService:
         try:
             import psycopg2
             
+            # Parse connection parameters
+            params = self._parse_connection_string(connection)
+            
             # Build connection with SSL support for Neon
-            if "neon.tech" in connection.host or "aws" in connection.host:
+            if "neon.tech" in params['host'] or "aws" in params['host']:
                 # Neon PostgreSQL connection with SSL
                 conn = psycopg2.connect(
-                    host=connection.host,
-                    port=connection.port,
-                    user=connection.username,
-                    password=connection.password,
-                    database=connection.database_name,
+                    host=params['host'],
+                    port=params['port'],
+                    user=params['username'],
+                    password=params['password'],
+                    database=params['database_name'],
                     sslmode='require'
                 )
             else:
                 # Regular PostgreSQL connection
                 conn = psycopg2.connect(
-                    host=connection.host,
-                    port=connection.port,
-                    user=connection.username,
-                    password=connection.password,
-                    database=connection.database_name
+                    host=params['host'],
+                    port=params['port'],
+                    user=params['username'],
+                    password=params['password'],
+                    database=params['database_name']
                 )
             
             conn.close()
@@ -289,13 +393,16 @@ class ConnectionService:
         try:
             from pymongo import MongoClient
             
+            # Parse connection parameters
+            params = self._parse_connection_string(connection)
+            
             # Check if this is an Atlas connection (mongodb+srv)
-            if ".mongodb.net" in connection.host:
+            if ".mongodb.net" in params['host']:
                 # Atlas connection - use srv format without port
-                mongo_uri = f"mongodb+srv://{connection.username}:{connection.password}@{connection.host}/{connection.database_name}?retryWrites=true&w=majority"
+                mongo_uri = f"mongodb+srv://{params['username']}:{params['password']}@{params['host']}/{params['database_name']}?retryWrites=true&w=majority"
             else:
                 # Regular MongoDB connection
-                mongo_uri = f"mongodb://{connection.username}:{connection.password}@{connection.host}:{connection.port}/{connection.database_name}"
+                mongo_uri = f"mongodb://{params['username']}:{params['password']}@{params['host']}:{params['port']}/{params['database_name']}"
             
             # Create client with timeout settings
             test_client = MongoClient(
@@ -330,11 +437,14 @@ class ConnectionService:
         try:
             import cx_Oracle
             
+            # Parse connection parameters
+            params = self._parse_connection_string(connection)
+            
             # Oracle connection string format
-            dsn = f"{connection.host}:{connection.port}/{connection.database_name}"
+            dsn = f"{params['host']}:{params['port']}/{params['database_name']}"
             conn = cx_Oracle.connect(
-                user=connection.username,
-                password=connection.password,
+                user=params['username'],
+                password=params['password'],
                 dsn=dsn
             )
             conn.close()
@@ -352,8 +462,11 @@ class ConnectionService:
         try:
             import pyodbc
             
+            # Parse connection parameters
+            params = self._parse_connection_string(connection)
+            
             # SQL Server connection string
-            conn_str = f"DRIVER={{SQL Server}};SERVER={connection.host},{connection.port};DATABASE={connection.database_name};UID={connection.username};PWD={connection.password}"
+            conn_str = f"DRIVER={{SQL Server}};SERVER={params['host']},{params['port']};DATABASE={params['database_name']};UID={params['username']};PWD={params['password']}"
             conn = pyodbc.connect(conn_str)
             conn.close()
             return ConnectionTestResult(status="success", message="SQL Server connection successful")
