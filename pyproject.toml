@@ -1,7 +1,7 @@
 [project]
 name = "pha-backend"
 version = "2.0.0"
-descriptionHey, Cortana.  = "AWS Health PHI Report Generator Backend"
+description = "AWS Health PHI Report Generator Backend"
 requires-python = ">=3.11"
 authors = [
     {name = "PHA Team", email = "team@pha.com"},
