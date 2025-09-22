@@ -15,10 +15,6 @@ class DatabaseConnectionBase(BaseModel):
     additional_notes: Optional[str] = Field(None, description="Additional notes or configuration")
 
 
-class DatabaseConnectionCreate(BaseModel):
-    """Schema for creating a database connection - simplified to only require essentials."""
-    database_type: str = Field(..., description="Type of database (MySQL, PostgreSQL, MongoDB, Snowflake, Oracle, SQL Server)")
-    connection_string: str = Field(..., description="Database connection string URI")
 
 
 class DatabaseConnectionUpdate(BaseModel):
@@ -80,3 +76,14 @@ class DatabaseSchemaResult(BaseModel):
     unified_schema: Optional[dict] = Field(None, description="Unified JSON schema format across all databases")
     
     model_config = ConfigDict(from_attributes=True)
+
+class CreateDBRequest(BaseModel):
+    username: str
+    password: str
+    database_type: str
+    connection_string: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str

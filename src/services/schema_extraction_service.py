@@ -6,8 +6,8 @@ import json
 import re
 from urllib.parse import urlparse, parse_qs
 
-from pha.models.connection import DatabaseConnection
-from pha.schemas.connection import (
+from models.connection import DatabaseConnection
+from schemas.connection import (
     DatabaseSchemaResult,
     DatabaseTable,
     DatabaseField

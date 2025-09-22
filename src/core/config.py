@@ -5,18 +5,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from pymongo import MongoClient
 
-# Load environment variables from config directory
-config_dir = Path(__file__).parent.parent.parent.parent / "config"
-env_file = config_dir / ".env"
-
-# Ensure the .env file exists
-if not env_file.exists():
-    print(f"Warning: .env file not found at {env_file}")
-else:
-    print(f"Loading environment variables from: {env_file}")
-
-load_dotenv(env_file)
-
+# Load environment variables from .env in current working directory
+load_dotenv()
 
 class Settings:
     """Application settings configuration."""
@@ -54,9 +44,6 @@ class Settings:
     DB_CONNECTION_TIMEOUT_MS: int = int(os.getenv("DB_CONNECTION_TIMEOUT_MS", "20000"))  # 20 seconds
     DB_SERVER_SELECTION_TIMEOUT_MS: int = int(os.getenv("DB_SERVER_SELECTION_TIMEOUT_MS", "10000"))  # 10 seconds
     
-    # Store config directory for reference
-    config_dir = config_dir
-    
     def validate_aws_credentials(self) -> dict:
         """Validate AWS credentials are properly loaded."""
         aws_access_key = os.getenv("AWS_ACCESS_KEY_ID")
@@ -68,8 +55,7 @@ class Settings:
             "aws_access_key_length": len(aws_access_key) if aws_access_key else 0,
             "aws_secret_key_present": bool(aws_secret_key),
             "aws_secret_key_length": len(aws_secret_key) if aws_secret_key else 0,
-            "aws_region": aws_region or "not_set",
-            "config_file_loaded": env_file.exists()
+            "aws_region": aws_region or "not_set"
         }
     
     class Config:
@@ -78,6 +64,3 @@ class Settings:
 
 # Create a global settings instance
 settings = Settings()
-
-# Note: MongoDB connection is now handled in session.py with proper async startup
-# This avoids blocking the application startup process

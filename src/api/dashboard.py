@@ -6,10 +6,10 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends, Path, Query
 
-from pha.services.connection_service import ConnectionService
-from pha.services.database_operation_service import DatabaseOperationService  
-from pha.db.session import get_database_manager, DatabaseManager
-from pha.schemas.database_operations import DatabaseQueryResult
+from services.connection_service import ConnectionService
+from services.database_operation_service import DatabaseOperationService  
+from db.session import get_database_manager, DatabaseManager
+from schemas.database_operations import DatabaseQueryResult
 
 logger = logging.getLogger(__name__)
 

@@ -4,11 +4,11 @@ import re
 from fastapi import APIRouter, Query, HTTPException, Depends
 import json
 
-from pha.services.bedrock_service import BedrockService
-from pha.services.database_operation_service import DatabaseOperationService
-from pha.db.session import get_database_manager
-from pha.schemas.healthcare import HealthcareQueryResponse
-from pha.schemas.database_operations import QueryExecutionResponse
+from services.bedrock_service import BedrockService
+from services.database_operation_service import DatabaseOperationService
+from db.session import get_database_manager
+from schemas.healthcare import HealthcareQueryResponse
+from schemas.database_operations import QueryExecutionResponse
 
 
 class HealthcareQueryController:
@@ -63,7 +63,7 @@ class HealthcareQueryController:
         """
         try:
             # Import here to avoid circular dependency
-            from pha.services.connection_service import ConnectionService
+            from services.connection_service import ConnectionService
             
             connection_service = ConnectionService(db_manager)
             schema_result = await connection_service.get_database_schema(connection_id)
@@ -157,7 +157,7 @@ class HealthcareQueryController:
         """
         try:
             # Import here to avoid circular dependency
-            from pha.services.connection_service import ConnectionService
+            from services.connection_service import ConnectionService
             import time
             
             start_time = time.time()
