@@ -1,8 +1,8 @@
-# AWS Health PHI Report Generator
+# AWS Health Foundry
 
 ##  Overview
 
-The AWS Health PHI Report Generator is a secure, AI-powered system that connects to client databases, extracts schemas, and enables multi-database operations without storing PHI data. The system supports comprehensive database connections, schema analysis, and MongoDB-specific advanced operations.
+The AWS Health HealthFoundary is a secure, AI-powered system that connects to client databases, extracts schemas, and enables multi-database operations without storing PHI data. The system supports comprehensive database connections, schema analysis, and MongoDB-specific advanced operations.
 
 ##  Architecture
 
