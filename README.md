@@ -1,10 +1,10 @@
 # AWS Health PHI Report Generator
 
-## � Overview
+##  Overview
 
 The AWS Health PHI Report Generator is a secure, AI-powered system that connects to client databases, extracts schemas, and enables multi-database operations without storing PHI data. The system supports comprehensive database connections, schema analysis, and MongoDB-specific advanced operations.
 
-## 🏗️ Architecture
+##  Architecture
 
 ```
 FastAPI Backend (EC2) → MongoDB Atlas (Metadata) → Client Databases (Live Query)
@@ -17,7 +17,7 @@ FastAPI Backend (EC2) → MongoDB Atlas (Metadata) → Client Databases (Live Qu
 - Unified JSON schema format for consistent data representation
 - HIPAA-compliant architecture with zero PHI storage
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### Prerequisites
 - Python 3.11+
@@ -67,7 +67,7 @@ python -m uvicorn pha.main:app --host 0.0.0.0 --port 8000 --reload
 - Health Check: http://localhost:8000/health
 - Database Status: http://localhost:8000/database/status
 
-## � API Endpoints
+##  API Endpoints
 
 ### Core Endpoints
 - `GET /` - Root endpoint with API information
@@ -137,7 +137,7 @@ PHA/
 └── requirements.txt   # Python dependencies (legacy)
 ```
 
-## 🔒 Security Features
+##  Security Features
 
 ### Database Security
 - **SSL/TLS Encryption**: Automatic for cloud providers
@@ -151,7 +151,7 @@ PHA/
 - **Secure Connections**: All database connections use SSL/TLS
 - **Audit Logging**: Comprehensive operation logging
 
-## 🧪 Testing
+##  Testing
 
 ### Run the Test Suite
 ```bash
@@ -179,7 +179,7 @@ curl -X POST "http://localhost:8000/api/v1/connections/" \
   }'
 ```
 
-## 🚀 Deployment
+##  Deployment
 
 ### Environment Variables
 ```bash
@@ -204,32 +204,14 @@ DB_SERVER_SELECTION_TIMEOUT_MS=30000
 5. Configure SSL/TLS certificates
 6. Set up monitoring and logging
 
-## 📖 Documentation
+##  Documentation
 
 - **API Documentation**: Available at `/docs` when running
 - **Architecture**: See `IMPROVED_ARCHITECTURE.md`
 - **Implementation Details**: See `FINAL_FLOW_SUMMARY.md`
 - **Testing Guide**: See `MONGODB_SCHEMA_API_TESTING.md`
 
-## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass
-6. Submit a pull request
-
-## 📜 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## 🆘 Support
-
-For support and questions:
-- Create an issue in the GitHub repository
-- Check the documentation in `/docs`
-- Review the testing guide for API usage examples
 
 ---
 
