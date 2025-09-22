@@ -46,21 +46,6 @@ class HealthcareQueryController:
         query_type: str = Query("comprehensive", description="Type of query: comprehensive, clinical, billing, basic"),
         db_manager = Depends(get_database_manager)
     ):
-        """
-        Generate healthcare query using a database connection ID.
-        
-        This endpoint automatically fetches the schema from the specified database connection
-        and generates the appropriate healthcare query. No need to manually provide the schema.
-        
-        Query Types:
-        - comprehensive: Full patient profile across all healthcare domains
-        - clinical: Medical data focused (diagnoses, procedures, medications, labs, vitals)
-        - billing: Financial data focused (bills, claims, payments, insurance)
-        - basic: Essential patient information only (demographics, contacts)
-        
-        Example Usage:
-        GET /healthcare/generate-query-by-connection?connection_id=507f1f77bcf86cd799439011&patient_id=687b0aca-ca63-4926-800b-90d5e92e5a0a&query_type=comprehensive
-        """
         try:
             # Import here to avoid circular dependency
             from services.connection_service import ConnectionService

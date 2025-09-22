@@ -18,7 +18,6 @@ from schemas.connection import (
 from db.session import DatabaseManager
 from services.schema_extraction_service import DatabaseSchemaExtractor
 
-
 class ConnectionService:
     """Service class for database connection operations."""
     

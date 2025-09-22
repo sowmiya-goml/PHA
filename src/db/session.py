@@ -10,7 +10,6 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-
 class DatabaseManager:
     """MongoDB database connection manager with async support."""
     

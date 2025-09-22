@@ -83,7 +83,6 @@ class CreateDBRequest(BaseModel):
     database_type: str
     connection_string: str
 
-
 class LoginRequest(BaseModel):
     username: str
     password: str

@@ -11,7 +11,6 @@ from typing import Dict, Any, Optional
 from core.config import settings
 from services.dynamic_query_generator import DynamicQueryGenerator
 
-
 class BedrockService:
     """Simplified service for Bedrock AI operations using dynamic query generation."""
     

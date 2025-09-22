@@ -15,7 +15,6 @@ import snowflake.connector
 from schemas.database_operations import DatabaseQueryResult, QueryValidationResult
 from services.connection_service import ConnectionService
 
-
 class DatabaseOperationService:
     """Service for executing queries against different database types."""
     

@@ -2,7 +2,6 @@
 Dynamic SQL Query Generator - Simplified healthcare query generation.
 Generates SQL queries based on database schema with proper reserved keyword handling.
 """
-
 import re
 import json
 from typing import Dict, List, Any, Optional, Union

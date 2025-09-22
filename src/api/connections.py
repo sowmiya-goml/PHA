@@ -82,13 +82,11 @@ async def create_db_connection(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create & test connection: {str(e)}")
 
-
 @router.post("/login")
 async def login(
     request: LoginRequest,
     db_manager: DatabaseManager = Depends(get_database_manager)
 ):
-    """Check if username/password exists in DB"""
     try:
         collection = db_manager.get_connections_collection()
         user = collection.find_one({"username": request.username, "password": request.password})

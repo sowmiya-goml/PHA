@@ -79,7 +79,6 @@ class DatabaseConnectionInfo(BaseModel):
     username: Optional[str] = Field(None, description="Database username")
     password: Optional[str] = Field(None, description="Database password")
 
-
 class QueryValidationResult(BaseModel):
     """Schema for query validation results."""
     is_valid: bool = Field(..., description="Whether the query is considered safe to execute")

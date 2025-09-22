@@ -47,7 +47,8 @@ class PatientDashboardController:
                 ["heart_rate", "status", "recorded_at", "device_id"]
             )
         
-        # Blood Pressure endpoint  
+        # Blood Pressure endpoint 
+         
         @self.router.get("/patients/{patient_id}/blood-pressure")
         async def get_patient_blood_pressure(
             patient_id: str = Path(..., description="Patient ID to fetch blood pressure data for"),

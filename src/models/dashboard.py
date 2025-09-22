@@ -8,7 +8,6 @@ from typing import Optional
 
 Base = declarative_base()
 
-
 class Patient(Base):
     """Patient model for storing patient information."""
     __tablename__ = "patients"

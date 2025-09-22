@@ -10,7 +10,7 @@ from models.dashboard import Base
 
 logger = logging.getLogger(__name__)
 
-# Database configuration
+
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost:5432/health_db")
 
 # Handle different database URL formats for async

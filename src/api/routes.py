@@ -1,7 +1,6 @@
 from fastapi import APIRouter
 from db.session import db_manager
 from core.config import settings
-
 router = APIRouter()
 
 @router.post("/reconnect")
