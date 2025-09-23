@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Query
-from db.auth import get_organization
+from fastapi import APIRouter, Query, HTTPException
+from db.auth import get_organization, get_cerner_credentials
 from fastapi.responses import RedirectResponse, JSONResponse
 from connector_fhir.cerner import generate_cerner_authorization_url, exchange_code_for_cerner_tokens, refresh_cerner_access_token, authorize_cerner
 router = APIRouter()
@@ -56,7 +56,7 @@ def cerner_callback(code: str, state: str):
         cerner_tokens = exchange_code_for_cerner_tokens(code, organization)
 
         if cerner_tokens:
-            redirect_url = "https://0rf47nqb-3000.inc1.devtunnels.ms/physician"
+            redirect_url = "https://0rf47nqb-3000.inc1.devtunnels.ms/login"
             return RedirectResponse(url=redirect_url)
         else:
             return JSONResponse(
@@ -80,3 +80,28 @@ def cerner_refresh(organization: str = Query(...)):
     print("organization", organization)
     cerner_tokens = refresh_cerner_access_token(organization)
     return {"message": "Access token refreshed", "tokens": cerner_tokens}
+ 
+
+@router.post("/CERNER/login", tags=["TEST"])
+async def cerner_login(
+    organization_name: str = Query(...),
+    password: str = Query(...)
+):
+    result = get_cerner_credentials(organization_name)
+
+    if result["status"] == "error":
+        raise HTTPException(status_code=404, detail=result["message"])
+
+    credentials = result["data"]
+
+    # Fallback for different password key names
+    stored_password = credentials.get("CERNER_PASSWORD") or credentials.get("password")
+
+    if stored_password != password:
+        raise HTTPException(status_code=401, detail="Invalid password")
+
+    return {
+        "message": "Login successful",
+        "organization": organization_name,
+    }
+

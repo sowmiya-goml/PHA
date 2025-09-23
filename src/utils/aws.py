@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
  
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+AWS_REGION = os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
  
 bedrock = boto3.client(
     "bedrock-runtime",
@@ -21,7 +21,7 @@ bedrock = boto3.client(
 def call_bedrock_summary(prompt: str):
     try:
         response = bedrock.invoke_model_with_response_stream(
-            modelId="anthropic.claude-3-5-sonnet-20240620-v1:0",
+            modelId="arn:aws:bedrock:ap-south-1:422228628797:inference-profile/apac.anthropic.claude-3-5-sonnet-20240620-v1:0",
             body=json.dumps({
                 "anthropic_version": "bedrock-2023-05-31",
                 "max_tokens": 6000,

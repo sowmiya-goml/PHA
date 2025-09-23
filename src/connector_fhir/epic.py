@@ -67,8 +67,8 @@ def authorize_epic(credentials: Credentials):
         client.close()
 
         if result.matched_count > 0:
-            return {"message": "Authorization updated successfully"}
-        return {"message": "Authorization successful"}
+            return {"message": "Authorization updated successfully", "organization": credentials.organization_name}
+        return {"message": "Authorization successful", "organization": credentials.organization_name}
 
     except DuplicateKeyError:
         return {"error": "Organization already exists", "details": "This organization is already authorized"}
