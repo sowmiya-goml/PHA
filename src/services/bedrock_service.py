@@ -122,104 +122,165 @@ class BedrockService:
             }
     
     def _create_bedrock_prompt(
-        self, 
-        schema_result, 
-        query_request: str, 
+        self,
+        schema_result,
+        query_request: str,
         patient_id: Optional[str] = None,
         **kwargs
     ) -> str:
         """Create a comprehensive prompt for AWS Bedrock Claude AI."""
-        
+ 
         # Extract key information
         database_type = schema_result.database_type
         database_name = schema_result.database_name
         unified_schema = schema_result.unified_schema
         tables_info = unified_schema.get("tables", [])
-        
+ 
         # Build table schema description
         schema_description = self._build_schema_description(tables_info, database_type)
-        
+        #print(schema_description, "😒😒😒😒😒😒😒😒😒😒")
+ 
         # Determine query type from request
         query_type = self._parse_query_type(query_request)
-        limit = kwargs.get('limit', 100)
-        
-        prompt = f"""You are an expert healthcare database analyst. Generate a precise SQL query based on the following requirements:
+ 
+        limit = kwargs.get("limit", 100)
+    
+        prompt = f"""You are an expert query generator for healthcare databases.  
+    
+    Your task is to generate a {database_type}-specific query using the provided schema and the rules below.  
+    
+    ## Schema
+    
+    Here is the current database schema extracted from the connection service:
+    
+    {schema_description}
+    
+    ## Rules & Instructions
+    
+    1. Generate a {database_type}-specific query that addresses the user’s query request.  
+    
+    2. If patient_id is provided:
+    - If it is numeric, use it directly in the WHERE clause.  
+    - If it is a UUID, wrap it in single quotes (`'uuid-value'`).  
+    
+    3. Use appropriate JOINs when querying multiple tables (e.g., patient demographics, encounters, diagnoses, medications, procedures, vitals).  
+    
+    4. Use only **read-only SELECT statements** (no modification queries).  
+    
+    5. Use correct {database_type} syntax and functions.  
+    
+    6. Always alias columns with user-friendly names.  
+    
+    7. Ensure the query covers healthcare-relevant data (demographics, vitals, diagnoses, medications, procedures).  
+    
+    8. **Reserved Keywords:** If a table or column name matches a reserved keyword, wrap it in **double quotes** `"keyword"`.  
+    
+    9. **Sanitization:** Avoid using unwanted symbols, special characters, or invalid SQL syntax in identifiers.  
+    
+    10. Always apply `LIMIT {limit}` at the **end of the query**, but **before the final semicolon**.  
+        - ✅ Correct: `... ORDER BY column DESC LIMIT {limit};`  
+        - ❌ Incorrect: `... ORDER BY column DESC; LIMIT {limit}`  
+    
+    11. Ensure the query is clean, safe, and executable on the provided schema.  
+    
+    ## Query Request
+    
+    {query_request}
+    
+    ## Patient Context
+    
+    Patient ID: {patient_id}  
+    
+    ## Output Format
+    
+    Return your response **only in the following format**:
+    
+    ```sql
+    -- SQL query generated
+    SELECT ...
 
-**Database Information:**
-- Database Type: {database_type}
-- Database Name: {database_name}
-- Patient ID: {patient_id or 'Not specified - query all patients'}
-- Query Type: {query_type}
-- Record Limit: {limit}
-
-**Database Schema:**
-{schema_description}
-
-**Query Request:**
-{query_request}
-
-**Instructions:**
-1. Generate a {database_type}-specific SQL query that addresses the query request
-2. If patient_id is provided, include WHERE clause filtering for that specific patient
-3. Include appropriate JOINs when querying multiple tables
-4. Apply LIMIT {limit} to prevent excessive data retrieval
-5. Use proper {database_type} syntax and functions
-6. Focus on healthcare-relevant data (patient demographics, vitals, diagnoses, medications, procedures)
-7. Ensure the query is read-only (SELECT statements only)
-8. Include helpful column aliases for better readability
-
-**Query Type Guidelines:**
-- comprehensive: Include patient demographics, vitals, diagnoses, medications, procedures
-- clinical: Focus on medical data (diagnoses, procedures, medications, lab results)
-- billing: Focus on financial data (charges, payments, insurance, claims)
-- basic: Essential patient information only (demographics, contact info)
-
-**Response Format:**
-Provide your response in this exact format:
-
-```sql
--- Your generated SQL query here
-SELECT ...
-```
-
-**Explanation:**
-Briefly explain what the query does and which tables/columns it accesses.
-
-**Important Notes:**
-- Use exact table and column names from the schema provided
-- Handle potential NULL values appropriately
-- Include proper date/time filtering if relevant
-- Ensure query performance with appropriate indexing considerations
-"""
-
+```"""
+ 
         return prompt
+
+ 
     
     def _build_schema_description(self, tables_info: list, database_type: str) -> str:
-        """Build a detailed schema description for the prompt."""
+        """Build a detailed schema description including columns for the prompt."""
         if not tables_info:
             return "No table information available."
-        
+    
         schema_lines = []
-        
+        schema_lines.append("DATABASE SCHEMA DETAILS:")
+        schema_lines.append("=" * 80)
+    
         for table in tables_info:
             table_name = table.get("name", "unknown")
-            fields = table.get("fields", [])
             row_count = table.get("row_count", "unknown")
-            
-            schema_lines.append(f"\nTable: {table_name} ({row_count} rows)")
-            schema_lines.append("-" * 50)
-            
+        
+            # Try different possible keys for columns/fields
+            fields = table.get("fields", []) or table.get("columns", []) or table.get("schema", [])
+        
+            schema_lines.append(f"\nTable: {table_name}")
+            schema_lines.append(f"Rows: {row_count}")
+            schema_lines.append("-" * 60)
+        
+            if not fields:
+                schema_lines.append("  No column information available")
+                continue
+        
+            # Add column headers
+            schema_lines.append("  Columns:")
+            schema_lines.append(f"  {'Column Name':<25} {'Data Type':<20} {'Nullable':<10} {'Key':<15}")
+            schema_lines.append(f"  {'-'*25} {'-'*20} {'-'*10} {'-'*15}")
+        
+            # Add each column with detailed information
             for field in fields:
                 field_name = field.get("name", "unknown")
                 field_type = field.get("type", "unknown")
                 is_nullable = field.get("nullable", True)
                 is_primary = field.get("primary_key", False)
-                
-                nullable_str = "NULL" if is_nullable else "NOT NULL"
-                primary_str = " (PRIMARY KEY)" if is_primary else ""
-                
-                schema_lines.append(f"  {field_name}: {field_type} {nullable_str}{primary_str}")
+                is_foreign = field.get("foreign_key", False)
+            
+                # Format nullable status
+                nullable_str = "YES" if is_nullable else "NO"
+            
+                # Format key information
+                key_info = ""
+                if is_primary:
+                    key_info = "PRIMARY KEY"
+                elif is_foreign:
+                    key_info = "FOREIGN KEY"
+                else:
+                    key_info = ""
+            
+                # Format the column row
+                schema_lines.append(f"  {field_name:<25} {field_type:<20} {nullable_str:<10} {key_info:<15}")
         
+            # Add relationships if available
+            relationships = table.get("relationships", [])
+            if relationships:
+                schema_lines.append("\n  Relationships:")
+                for rel in relationships:
+                    schema_lines.append(f"    - {rel}")
+        
+            # Add indexes if available
+            indexes = table.get("indexes", [])
+            if indexes:
+                schema_lines.append("\n  Indexes:")
+                for idx in indexes:
+                    schema_lines.append(f"    - {idx}")
+        
+            schema_lines.append("")  # Empty line between tables
+    
+        # Add database-specific notes
+        schema_lines.append("\nIMPORTANT NOTES:")
+        schema_lines.append(f"- Database Type: {database_type}")
+        schema_lines.append("- Use exact table and column names as shown above")
+        schema_lines.append("- Pay attention to data types for proper query construction")
+        schema_lines.append("- Consider nullable columns when writing WHERE clauses")
+        schema_lines.append("- Use primary keys for JOIN operations when possible")
+    
         return "\n".join(schema_lines)
     
     async def _call_bedrock_api(self, prompt: str) -> Dict[str, Any]:

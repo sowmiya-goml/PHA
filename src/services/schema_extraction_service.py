@@ -50,6 +50,7 @@ class DatabaseSchemaExtractor:
             
             if db_type in ['postgresql', 'mysql', 'mongodb']:
                 # Standard URI format: scheme://username:password@host:port/database
+                #print("😁😁😁😁😁😁😁😁😁")
                 parsed = urlparse(connection_string)
                 return {
                     'host': parsed.hostname,
