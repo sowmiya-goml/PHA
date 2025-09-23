@@ -7,6 +7,7 @@ from core.config import settings
 from api import connections, healthcare, dashboard, routes
 from utils.helpers import setup_logging
 from db.session import db_manager
+from api.agents import router as agents_router
 
 setup_logging()
 @asynccontextmanager
@@ -20,7 +21,7 @@ async def lifespan(app: FastAPI):
         
     yield
     
-    # Shutdown
+   
     try:
         if db_manager.client:
             db_manager.close()
@@ -45,11 +46,12 @@ app.add_middleware(
 )
 
 
-# Include all v1 routes
+
 app.include_router(connections.router, prefix="/connections", tags=["Database Connections"])
 app.include_router(healthcare.router, prefix="/healthcare", tags=["Healthcare Queries"])
 app.include_router(dashboard.router, prefix="/dashboard", tags=["Patient Dashboard"])
 app.include_router(routes.router, prefix="/route")
+app.include_router(agents_router, prefix="/agents", tags=["agents"])
 
 
 if __name__ == "__main__":
