@@ -11,6 +11,8 @@ import mysql.connector
 import oracledb
 import pyodbc
 import snowflake.connector
+import datetime
+from datetime import datetime as dt
 
 from schemas.database_operations import DatabaseQueryResult, QueryValidationResult
 from services.connection_service import ConnectionService
@@ -29,6 +31,21 @@ class DatabaseOperationService:
             r';\s*--',
             r'/\*.*\*/'
         ]
+    
+    def _serialize_datetime_objects(self, data: List[Dict]) -> List[Dict]:
+        """Convert datetime objects to ISO format strings for JSON serialization."""
+        serialized_data = []
+        for item in data:
+            serialized_item = {}
+            for key, value in item.items():
+                if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
+                    serialized_item[key] = value.isoformat()
+                elif value is None:
+                    serialized_item[key] = None
+                else:
+                    serialized_item[key] = value
+            serialized_data.append(serialized_item)
+        return serialized_data
     
     def validate_query_safety(self, query: str, database_type: str = "sql") -> QueryValidationResult:
         """Validate that a query is safe to execute (read-only, no injections)."""
@@ -96,6 +113,7 @@ class DatabaseOperationService:
         self, 
         connection_id: str, 
         query: str, 
+        params: dict = None,
         limit: int = 100
     ) -> List[DatabaseQueryResult]:
         """Execute a query against the specified database connection."""
@@ -113,17 +131,17 @@ class DatabaseOperationService:
         database_type = connection.database_type.lower()
         
         if database_type == "mongodb":
-            return await self._execute_mongodb_query(connection, query, limit)
+            return await self._execute_mongodb_query(connection, query, limit, params)
         elif database_type in ["postgresql", "postgres"]:
-            return await self._execute_postgresql_query(connection, query, limit)
+            return await self._execute_postgresql_query(connection, query, limit, params)
         elif database_type == "mysql":
-            return await self._execute_mysql_query(connection, query, limit)
+            return await self._execute_mysql_query(connection, query, limit, params)
         elif database_type == "oracle":
-            return await self._execute_oracle_query(connection, query, limit)
+            return await self._execute_oracle_query(connection, query, limit, params)
         elif database_type in ["sqlserver", "mssql"]:
-            return await self._execute_sqlserver_query(connection, query, limit)
+            return await self._execute_sqlserver_query(connection, query, limit, params)
         elif database_type == "snowflake":
-            return await self._execute_snowflake_query(connection, query, limit)
+            return await self._execute_snowflake_query(connection, query, limit, params)
         else:
             raise ValueError(f"Unsupported database type: {database_type}")
     
@@ -131,22 +149,22 @@ class DatabaseOperationService:
         """Get connection parameters using existing connection service logic."""
         return self.connection_service._parse_connection_string(connection)
     
-    async def _execute_mongodb_query(self, connection, query: str, limit: int) -> List[DatabaseQueryResult]:
+    async def _execute_mongodb_query(self, connection, query: str, limit: int, params: dict = None) -> List[DatabaseQueryResult]:
         """Execute MongoDB query."""
         start_time = time.time()
         client = None
         
         try:
-            params = self._get_connection_params(connection)
+            conn_params = self._get_connection_params(connection)
             
             # Build MongoDB URI
-            if ".mongodb.net" in params['host']:
-                mongo_uri = f"mongodb+srv://{params['username']}:{params['password']}@{params['host']}/{params['database_name']}?retryWrites=true&w=majority"
+            if ".mongodb.net" in conn_params['host']:
+                mongo_uri = f"mongodb+srv://{conn_params['username']}:{conn_params['password']}@{conn_params['host']}/{conn_params['database_name']}?retryWrites=true&w=majority"
             else:
-                mongo_uri = f"mongodb://{params['username']}:{params['password']}@{params['host']}:{params['port']}/{params['database_name']}"
+                mongo_uri = f"mongodb://{conn_params['username']}:{conn_params['password']}@{conn_params['host']}:{conn_params['port']}/{conn_params['database_name']}"
             
             client = pymongo.MongoClient(mongo_uri)
-            db = client[params['database_name']]
+            db = client[conn_params['database_name']]
             
             # Parse MongoDB query
             if query.strip().startswith('{'):
@@ -158,23 +176,31 @@ class DatabaseOperationService:
                 collection_name = 'patients'
                 filter_query = json.loads(query) if query.strip() else {}
                 projection = {}
+                
+            if params:
+                filter_query.update(params)
             
             collection = db[collection_name]
             cursor = collection.find(filter_query, projection).limit(limit)
             results = list(cursor)
             
-            # Convert ObjectId to string
+            # Convert ObjectId to string and handle datetime serialization
+            data = []
             for result in results:
                 if '_id' in result:
                     result['_id'] = str(result['_id'])
+                data.append(result)
+            
+            # Serialize datetime objects
+            serialized_data = self._serialize_datetime_objects(data)
             
             execution_time = (time.time() - start_time) * 1000
             
             return [DatabaseQueryResult(
                 table_name=collection_name,
                 query=query,
-                row_count=len(results),
-                data=results,
+                row_count=len(serialized_data),
+                data=serialized_data,
                 execution_time_ms=execution_time
             )]
             
@@ -184,35 +210,35 @@ class DatabaseOperationService:
             if client:
                 client.close()
     
-    async def _execute_postgresql_query(self, connection, query: str, limit: int) -> List[DatabaseQueryResult]:
+    async def _execute_postgresql_query(self, connection, query: str, limit: int, params: dict = None) -> List[DatabaseQueryResult]:
         """Execute PostgreSQL query."""
         start_time = time.time()
         conn = None
         
         try:
-            params = self._get_connection_params(connection)
+            conn_params = self._get_connection_params(connection)
             
             # Add LIMIT if not present
             if 'LIMIT' not in query.upper():
                 query = f"{query} LIMIT {limit}"
             
             # Handle SSL for cloud databases
-            if "neon.tech" in params['host'] or "aws" in params['host']:
+            if "neon.tech" in conn_params['host'] or "aws" in conn_params['host']:
                 conn = psycopg2.connect(
-                    host=params['host'],
-                    port=params['port'],
-                    database=params['database_name'],
-                    user=params['username'],
-                    password=params['password'],
+                    host=conn_params['host'],
+                    port=conn_params['port'],
+                    database=conn_params['database_name'],
+                    user=conn_params['username'],
+                    password=conn_params['password'],
                     sslmode='require'
                 )
             else:
                 conn = psycopg2.connect(
-                    host=params['host'],
-                    port=params['port'],
-                    database=params['database_name'],
-                    user=params['username'],
-                    password=params['password']
+                    host=conn_params['host'],
+                    port=conn_params['port'],
+                    database=conn_params['database_name'],
+                    user=conn_params['username'],
+                    password=conn_params['password']
                 )
             
             cursor = conn.cursor()
@@ -221,13 +247,16 @@ class DatabaseOperationService:
             column_names = [desc[0] for desc in cursor.description]
             data = [dict(zip(column_names, row)) for row in results]
             
+            # Serialize datetime objects
+            serialized_data = self._serialize_datetime_objects(data)
+            
             execution_time = (time.time() - start_time) * 1000
             
             return [DatabaseQueryResult(
                 table_name="query_result",
                 query=query,
-                row_count=len(data),
-                data=data,
+                row_count=len(serialized_data),
+                data=serialized_data,
                 execution_time_ms=execution_time
             )]
             
@@ -237,37 +266,40 @@ class DatabaseOperationService:
             if conn:
                 conn.close()
     
-    async def _execute_mysql_query(self, connection, query: str, limit: int) -> List[DatabaseQueryResult]:
+    async def _execute_mysql_query(self, connection, query: str, limit: int, params: dict = None) -> List[DatabaseQueryResult]:
         """Execute MySQL query."""
         start_time = time.time()
         conn = None
         
         try:
-            params = self._get_connection_params(connection)
+            conn_params = self._get_connection_params(connection)
             
             # Add LIMIT if not present
             if 'LIMIT' not in query.upper():
                 query = f"{query} LIMIT {limit}"
             
             conn = mysql.connector.connect(
-                host=params['host'],
-                port=params['port'],
-                database=params['database_name'],
-                user=params['username'],
-                password=params['password']
+                host=conn_params['host'],
+                port=conn_params['port'],
+                database=conn_params['database_name'],
+                user=conn_params['username'],
+                password=conn_params['password']
             )
             
             cursor = conn.cursor(dictionary=True)
             cursor.execute(query)
             results = cursor.fetchall()
             
+            # Serialize datetime objects
+            serialized_data = self._serialize_datetime_objects(results)
+            
             execution_time = (time.time() - start_time) * 1000
             
             return [DatabaseQueryResult(
                 table_name="query_result",
                 query=query,
-                row_count=len(results),
-                data=results,
+                row_count=len(serialized_data),
+                data=serialized_data,
                 execution_time_ms=execution_time
             )]
             
@@ -277,20 +309,20 @@ class DatabaseOperationService:
             if conn:
                 conn.close()
     
-    async def _execute_oracle_query(self, connection, query: str, limit: int) -> List[DatabaseQueryResult]:
+    async def _execute_oracle_query(self, connection, query: str, limit: int, params: dict = None) -> List[DatabaseQueryResult]:
         """Execute Oracle query."""
         start_time = time.time()
         conn = None
         
         try:
-            params = self._get_connection_params(connection)
+            conn_params = self._get_connection_params(connection)
             
             # Add ROWNUM limit if not present
             if 'ROWNUM' not in query.upper() and 'LIMIT' not in query.upper():
                 query = f"SELECT * FROM ({query}) WHERE ROWNUM <= {limit}"
             
-            dsn = oracledb.makedsn(params['host'], params['port'], params['database_name'])
-            conn = oracledb.connect(params['username'], params['password'], dsn)
+            dsn = oracledb.makedsn(conn_params['host'], conn_params['port'], conn_params['database_name'])
+            conn = oracledb.connect(conn_params['username'], conn_params['password'], dsn)
             
             cursor = conn.cursor()
             cursor.execute(query)
@@ -298,13 +330,16 @@ class DatabaseOperationService:
             column_names = [desc[0] for desc in cursor.description]
             data = [dict(zip(column_names, row)) for row in results]
             
+            # Serialize datetime objects
+            serialized_data = self._serialize_datetime_objects(data)
+            
             execution_time = (time.time() - start_time) * 1000
             
             return [DatabaseQueryResult(
                 table_name="query_result",
                 query=query,
-                row_count=len(data),
-                data=data,
+                row_count=len(serialized_data),
+                data=serialized_data,
                 execution_time_ms=execution_time
             )]
             
@@ -314,19 +349,19 @@ class DatabaseOperationService:
             if conn:
                 conn.close()
     
-    async def _execute_sqlserver_query(self, connection, query: str, limit: int) -> List[DatabaseQueryResult]:
+    async def _execute_sqlserver_query(self, connection, query: str, limit: int, params: dict = None) -> List[DatabaseQueryResult]:
         """Execute SQL Server query."""
         start_time = time.time()
         conn = None
         
         try:
-            params = self._get_connection_params(connection)
+            conn_params = self._get_connection_params(connection)
             
             # Add TOP clause if not present
             if 'TOP' not in query.upper() and 'LIMIT' not in query.upper():
                 query = query.replace('SELECT', f'SELECT TOP {limit}', 1)
             
-            conn_str = f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={params['host']},{params['port']};DATABASE={params['database_name']};UID={params['username']};PWD={params['password']}"
+            conn_str = f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={conn_params['host']},{conn_params['port']};DATABASE={conn_params['database_name']};UID={conn_params['username']};PWD={conn_params['password']}"
             conn = pyodbc.connect(conn_str)
             
             cursor = conn.cursor()
@@ -335,13 +370,16 @@ class DatabaseOperationService:
             column_names = [column[0] for column in cursor.description]
             data = [dict(zip(column_names, row)) for row in results]
             
+            # Serialize datetime objects
+            serialized_data = self._serialize_datetime_objects(data)
+            
             execution_time = (time.time() - start_time) * 1000
             
             return [DatabaseQueryResult(
                 table_name="query_result",
                 query=query,
-                row_count=len(data),
-                data=data,
+                row_count=len(serialized_data),
+                data=serialized_data,
                 execution_time_ms=execution_time
             )]
             
@@ -351,59 +389,50 @@ class DatabaseOperationService:
             if conn:
                 conn.close()
 
-    async def _execute_snowflake_query(self, connection, query: str, limit: int) -> List[DatabaseQueryResult]:
+    async def _execute_snowflake_query(self, connection, query: str, limit: int, params: dict = None) -> List[DatabaseQueryResult]:
         """Execute Snowflake query."""
         start_time = time.time()
         conn = None
         
         try:
-            params = self._get_connection_params(connection)
+            conn_params = self._get_connection_params(connection)
             
             # Add LIMIT if not present
             if 'LIMIT' not in query.upper():
                 query = f"{query} LIMIT {limit}"
             
             # Prepare Snowflake connection parameters
-            conn_params = {
-                'user': params['username'],
-                'password': params['password'],
-                'account': params['host'].replace('.snowflakecomputing.com', ''),
-                'database': params['database_name'],
+            snowflake_params = {
+                'user': conn_params['username'],
+                'password': conn_params['password'],
+                'account': conn_params['host'].replace('.snowflakecomputing.com', ''),
+                'database': conn_params['database_name'],
                 'schema': 'PUBLIC'
             }
             
             # Handle account identifier format
-            if '.ap-south-1.aws' in conn_params['account']:
-                conn_params['account'] = conn_params['account'].replace('.ap-south-1.aws', '')
-            elif '.aws' in conn_params['account'] or '.azure' in conn_params['account'] or '.gcp' in conn_params['account']:
-                conn_params['account'] = conn_params['account'].split('.')[0]
+            if '.ap-south-1.aws' in snowflake_params['account']:
+                snowflake_params['account'] = snowflake_params['account'].replace('.ap-south-1.aws', '')
+            elif '.aws' in snowflake_params['account'] or '.azure' in snowflake_params['account'] or '.gcp' in snowflake_params['account']:
+                snowflake_params['account'] = snowflake_params['account'].split('.')[0]
             
-            conn = snowflake.connector.connect(**conn_params)
+            conn = snowflake.connector.connect(**snowflake_params)
             cursor = conn.cursor()
             cursor.execute(query)
             results = cursor.fetchall()
             column_names = [desc[0] for desc in cursor.description]
+            data = [dict(zip(column_names, row)) for row in results]
             
-            # Convert results to JSON-serializable format
-            data = []
-            for row in results:
-                row_dict = {}
-                for i, value in enumerate(row):
-                    if hasattr(value, 'isoformat'):  # datetime objects
-                        row_dict[column_names[i]] = value.isoformat()
-                    elif isinstance(value, (int, float, str, bool)) or value is None:
-                        row_dict[column_names[i]] = value
-                    else:
-                        row_dict[column_names[i]] = str(value)
-                data.append(row_dict)
+            # Serialize datetime objects
+            serialized_data = self._serialize_datetime_objects(data)
             
             execution_time = (time.time() - start_time) * 1000
             
             return [DatabaseQueryResult(
                 table_name="query_result",
                 query=query,
-                row_count=len(data),
-                data=data,
+                row_count=len(serialized_data),
+                data=serialized_data,
                 execution_time_ms=execution_time
             )]
             

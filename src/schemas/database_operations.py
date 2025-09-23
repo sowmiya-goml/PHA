@@ -34,7 +34,7 @@ class DatabaseQueryResult(BaseModel):
 
 class QueryExecutionResponse(BaseModel):
     """Schema for complete query execution response."""
-    # Query generation info (from existing endpoint)
+    # Query generation info
     generated_query: str = Field(..., description="Generated SQL/MongoDB query")
     patient_id: str = Field(..., description="Patient ID used in the query")
     query_type: str = Field(..., description="Type of query executed")
@@ -46,11 +46,11 @@ class QueryExecutionResponse(BaseModel):
     # Database connection info
     connection_info: Dict[str, Any] = Field(..., description="Database connection information")
     
-    # Query execution results (new functionality)
+    # Query execution results - THIS IS WHERE THE DATA IS
     query_executed: bool = Field(..., description="Whether the query was actually executed")
-    execution_results: Optional[List[DatabaseQueryResult]] = Field(
+    execution_results: Optional[List[Dict[str, Any]]] = Field(
         None, 
-        description="Results from executing the query against the database"
+        description="Results from executing the query - contains 'data' field with actual records"
     )
     total_records_found: Optional[int] = Field(
         None, 
