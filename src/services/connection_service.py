@@ -5,7 +5,7 @@ from bson import ObjectId
 from datetime import datetime
 import urllib.parse
 import re
-import cx_Oracle
+import oracledb
 from models.connection import DatabaseConnection
 from schemas.connection import (
     DatabaseConnectionUpdate,
@@ -426,7 +426,7 @@ class ConnectionService:
             params = self._parse_connection_string(connection)
             
             dsn = f"{params['host']}:{params['port']}/{params['database_name']}"
-            conn = cx_Oracle.connect(
+            conn = oracledb.connect(
                 user=params['username'],
                 password=params['password'],
                 dsn=dsn

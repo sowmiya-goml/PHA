@@ -571,8 +571,8 @@ class BedrockQueueManager:
 class DatabaseConnector:
     async def connect_oracle(self, config: DatabaseConfig):
         """Oracle database support"""
-        import cx_Oracle
-        return cx_Oracle.connect(config.connection_string)
+        import oracledb
+        return oracledb.connect(config.connection_string)
     
     async def connect_sqlserver(self, config: DatabaseConfig):
         """SQL Server support"""

@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 import pymongo
 import psycopg2
 import mysql.connector
-import cx_Oracle
+import oracledb
 import pyodbc
 import snowflake.connector
 
@@ -289,8 +289,8 @@ class DatabaseOperationService:
             if 'ROWNUM' not in query.upper() and 'LIMIT' not in query.upper():
                 query = f"SELECT * FROM ({query}) WHERE ROWNUM <= {limit}"
             
-            dsn = cx_Oracle.makedsn(params['host'], params['port'], params['database_name'])
-            conn = cx_Oracle.connect(params['username'], params['password'], dsn)
+            dsn = oracledb.makedsn(params['host'], params['port'], params['database_name'])
+            conn = oracledb.connect(params['username'], params['password'], dsn)
             
             cursor = conn.cursor()
             cursor.execute(query)

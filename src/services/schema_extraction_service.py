@@ -697,7 +697,7 @@ class DatabaseSchemaExtractor:
     async def _extract_oracle_schema(self, connection: DatabaseConnection) -> DatabaseSchemaResult:
         """Extract Oracle database schema using connection string URI."""
         try:
-            import cx_Oracle
+            import oracledb
             
             # Parse connection string
             conn_params = self._parse_connection_string(connection.connection_string, connection.database_type)
@@ -706,7 +706,7 @@ class DatabaseSchemaExtractor:
             if 'oracle://' in connection.connection_string.lower():
                 # Oracle URI format: oracle://user:password@host:port/service_name
                 dsn = f"{conn_params.get('host')}:{conn_params.get('port', 1521)}/{conn_params.get('database_name')}"
-                conn = cx_Oracle.connect(
+                conn = oracledb.connect(
                     user=conn_params.get('username'),
                     password=conn_params.get('password'),
                     dsn=dsn
@@ -714,7 +714,7 @@ class DatabaseSchemaExtractor:
             else:
                 # Traditional Oracle connection string (Data Source= format)
                 # Extract from parsed parameters or use connection string directly
-                conn = cx_Oracle.connect(connection.connection_string)
+                conn = oracledb.connect(connection.connection_string)
             
             cursor = conn.cursor()
             

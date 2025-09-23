@@ -208,7 +208,7 @@ SQL Server: "SELECT TOP {limit} ..."
 ✅ PostgreSQL  → psycopg2
 ✅ MySQL       → mysql.connector
 ✅ MongoDB     → pymongo
-🔧 Oracle      → cx_Oracle (optional install)
+🔧 Oracle      → oracledb (optional install)
 🔧 SQL Server  → pyodbc (optional install)
 ```
 
@@ -374,7 +374,7 @@ ENABLE_QUERY_LOGGING=true
 pip install psycopg2-binary mysql-connector-python pymongo
 
 # Optional database support
-pip install cx_Oracle      # For Oracle databases
+pip install oracledb      # For Oracle databases
 pip install pyodbc         # For SQL Server databases
 pip install sqlalchemy     # For advanced SQL operations
 ```
