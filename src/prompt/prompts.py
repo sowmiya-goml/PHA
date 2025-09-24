@@ -9,12 +9,14 @@ Given a natural language query about patient information for patient ID {patient
 
 Do not retrieve medical conditions, medications, procedures, or any other clinical data. Focus exclusively on demographic and profile information.
 
+When retrieving rows, always return ONLY the most recent record (latest data) for the specified patient. Do not return multiple rows. Ensure the query uses appropriate ordering (such as by timestamp, created_at, updated_at, or encounter_date columns available in the schema) and limits results to 1.
 
 Query: {user_query}
 
 Database schema context: {schema_info}
 
-Generate a SQL or NoSQL query that safely retrieves ONLY the requested patient demographic information for the specified patient ID."""
+Generate a SQL or NoSQL query that safely retrieves ONLY the requested patient demographic information for the specified patient ID, returning the latest row of data."""
+
 
 # ...existing code...
 
@@ -128,15 +130,18 @@ Given a natural language query about appointments for patient ID {patient_id}, g
 - Appointment history and status
 - Provider and facility information
 - Appointment reminders and notifications
+- Use only the actual columns of the given database (not generic placeholders).
 
 Do not retrieve patient demographics, medications, conditions, procedures, lab results, or any other non-appointment data. Focus exclusively on appointment scheduling information.
 
+When joining multiple tables, always use an OUTER JOIN (LEFT, RIGHT, or FULL depending on context) to ensure that all relevant appointment records are returned, even if some related data (e.g., reminders, facility, provider) is missing. Do not use INNER JOIN, as it may exclude rows when NULL values are encountered.
 
 Query: {user_query}
 
 Database schema context: {schema_info}
 
-Generate a SQL or NoSQL query that safely retrieves ONLY the requested appointment information for the specified patient ID."""
+Generate a SQL or NoSQL query that safely retrieves ONLY the requested appointment information for the specified patient ID, ensuring OUTER JOINs are used to include all possible rows."""
+
 
 DIET_AGENT_PROMPT = """You are a Diet Agent for a healthcare system. Your role is to provide nutritional guidance and diet planning for a specific patient.
 
