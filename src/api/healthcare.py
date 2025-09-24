@@ -190,13 +190,23 @@ class HealthcareQueryController:
                 generated_query = query_result.get("query", "")
                 
                 if generated_query:
-                    execution_results = await db_operation_service.execute_query(
+                    db_results = await db_operation_service.execute_query(
                         connection_id=connection_id,
                         query=generated_query,
                         limit=limit
                     )
+                    #print(db_results,"👌👌👌👌👌👌👌👌👌")
+                    execution_results = []
+                    for result in db_results:
+                        execution_results.append({
+                            "table_name": result.table_name,
+                            "query": result.query,
+                            "row_count": result.row_count,
+                            "data": result.data,  # This contains the actual patient data
+                            "execution_time_ms": result.execution_time_ms
+                        })
                     query_executed = True
-                    total_records = sum(result.row_count for result in execution_results)
+                    total_records = sum(result.row_count for result in db_results)
                 else:
                     execution_errors.append("No query was generated to execute")
                     

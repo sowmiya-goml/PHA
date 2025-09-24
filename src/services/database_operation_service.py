@@ -216,6 +216,7 @@ class DatabaseOperationService:
         conn = None
         
         try:
+            #print("👍👍👍👍👍👍👍👍")
             conn_params = self._get_connection_params(connection)
             
             # Add LIMIT if not present
@@ -252,6 +253,7 @@ class DatabaseOperationService:
             
             execution_time = (time.time() - start_time) * 1000
             
+            #print("🎶🎶🎶🎶🎶🎶🎶🎶🎶🎶🎶")
             return [DatabaseQueryResult(
                 table_name="query_result",
                 query=query,

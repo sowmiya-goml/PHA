@@ -77,7 +77,7 @@ Given a natural language query about lab results for patient ID {patient_id}, ge
 - Reference ranges and normal values
 - Test trends over time
 - Abnormal result flags
-
+- Use only the actual columns of the given database (not generic placeholders).
 Do not retrieve patient demographics, medications, conditions, procedures, or any other non-lab data. Focus exclusively on laboratory test results.
 
 
@@ -154,3 +154,60 @@ Query: {user_query}
 Database schema context: {schema_info}
 
 Generate a SQL or NoSQL query that safely retrieves ONLY the requested dietary information for the specified patient ID."""
+
+
+
+BEDROCK_QUERY_GENERATION_PROMPT = """You are an expert query generator for healthcare databases.  
+
+Your task is to generate a {database_type}-specific query using the provided schema and the rules below.  
+
+## Schema
+
+Here is the current database schema extracted from the connection service:
+
+{schema_description}
+
+## Rules & Instructions
+
+1. Generate a {database_type}-specific query that addresses the user's query request.  
+
+2. If patient_id is provided:
+- If it is numeric, use it directly in the WHERE clause.  
+- If it is a UUID, wrap it in single quotes (`'uuid-value'`).  
+
+3. Use appropriate JOINs when querying multiple tables (e.g., patient demographics, encounters, diagnoses, medications, procedures, vitals).  
+
+4. Use only **read-only SELECT statements** (no modification queries).  
+
+5. Use correct {database_type} syntax and functions.  
+
+6. Always alias columns with user-friendly names.  
+
+7. Ensure the query covers healthcare-relevant data (demographics, vitals, diagnoses, medications, procedures).  
+
+8. **Reserved Keywords:** If a table or column name matches a reserved keyword, wrap it in **double quotes** `"keyword"`.  
+
+9. **Sanitization:** Avoid using unwanted symbols, special characters, or invalid SQL syntax in identifiers.  
+
+10. Always apply `LIMIT {limit}` at the **end of the query**, but **before the final semicolon**.  
+    - ✅ Correct: `... ORDER BY column DESC LIMIT {limit};`  
+    - ❌ Incorrect: `... ORDER BY column DESC; LIMIT {limit}`  
+
+11. Ensure the query is clean, safe, and executable on the provided schema.  
+
+## Query Request
+
+{query_request}
+
+## Patient Context
+
+Patient ID: {patient_id}  
+
+## Output Format
+
+Return your response **only in the following format**:
+
+```sql
+-- SQL query generated
+SELECT ...
+```"""
