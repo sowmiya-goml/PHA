@@ -1,4 +1,4 @@
-"""Combined healthcare agent services."""
+"""Combined healthcare agent services with personalized report generation."""
 
 from typing import List, Dict, Any
 from datetime import datetime
@@ -9,8 +9,55 @@ from schemas.database_operations import QueryExecutionResponse
 from prompt.prompts import (
     PATIENT_AGENT_PROMPT, MEDICATION_AGENT_PROMPT, FOLLOWUP_AGENT_PROMPT,
     CONDITION_AGENT_PROMPT, LAB_RESULT_AGENT_PROMPT, PROCEDURE_AGENT_PROMPT,
-    ALLERGY_AGENT_PROMPT, APPOINTMENT_AGENT_PROMPT, DIET_AGENT_PROMPT
+    ALLERGY_AGENT_PROMPT, APPOINTMENT_AGENT_PROMPT, DIET_AGENT_PROMPT,
+    PATIENT_REPORT_PROMPT, MEDICATION_REPORT_PROMPT, FOLLOWUP_REPORT_PROMPT,
+    CONDITION_REPORT_PROMPT, LAB_RESULT_REPORT_PROMPT, PROCEDURE_REPORT_PROMPT,
+    ALLERGY_REPORT_PROMPT, APPOINTMENT_REPORT_PROMPT, DIET_REPORT_PROMPT
 )
+import json
+
+async def _generate_health_report(
+    bedrock_service: BedrockService,
+    patient_id: str,
+    executed_query: str,
+    data: List[Dict],
+    report_prompt: str
+) -> str:
+    """Generate personalized health report using LLM."""
+    try:
+        # Format the data for the LLM
+        formatted_data = json.dumps(data, indent=2, default=str) if data else "No data available"
+        
+        # Create the report generation prompt
+        report_request = report_prompt.format(
+            patient_id=patient_id,
+            executed_query=executed_query,
+            **{
+                'patient_data': formatted_data,
+                'medication_data': formatted_data,
+                'followup_data': formatted_data,
+                'condition_data': formatted_data,
+                'lab_data': formatted_data,
+                'procedure_data': formatted_data,
+                'allergy_data': formatted_data,
+                'appointment_data': formatted_data,
+                'diet_data': formatted_data
+            }
+        )
+        
+        # Call Bedrock to generate the report
+        report_response = await bedrock_service._call_bedrock_api(report_request)
+        
+        if report_response.get("status") == "success":
+            # Extract the report text from the response
+            content = report_response.get("raw_response", {}).get('content', [])
+            if content:
+                return content[0].get('text', 'Unable to generate report')
+            
+        return "Unable to generate personalized report"
+        
+    except Exception as e:
+        return f"Error generating report: {str(e)}"
 
 async def _generic_agent_flow(
     db_manager, 
@@ -20,9 +67,10 @@ async def _generic_agent_flow(
     patient_id: str,
     default_query: str,
     query_type: str,
-    agent_prompt: str
+    agent_prompt: str,
+    report_prompt: str
 ) -> QueryExecutionResponse:
-    """Generic flow for processing healthcare agent queries using Bedrock."""
+    """Generic flow for processing healthcare agent queries using Bedrock with report generation."""
     try:
         # Get schema and enhance context
         connection_service = ConnectionService(db_manager)
@@ -89,16 +137,26 @@ async def _generic_agent_flow(
         # Get the first result (database_operation_service returns List[DatabaseQueryResult])
         first_result = db_results[0]
         
+        # Generate personalized health report using the retrieved data
+        health_report = await _generate_health_report(
+            bedrock_service=bedrock_service,
+            patient_id=patient_id,
+            executed_query=generated_query,
+            data=first_result.data,
+            report_prompt=report_prompt
+        )
+        
         # Convert the DatabaseQueryResult to the format expected by execution_results
         db_query_result = {
             "table_name": first_result.table_name,
             "query": first_result.query,
             "row_count": first_result.row_count,
             "data": first_result.data,
-            "execution_time_ms": first_result.execution_time_ms
+            "execution_time_ms": first_result.execution_time_ms,
+            "personalized_health_report": health_report  # Add the generated report
         }
         
-        # Return QueryExecutionResponse with actual data
+        # Return QueryExecutionResponse with actual data and health report
         return QueryExecutionResponse(
             generated_query=generated_query,
             patient_id=patient_id,
@@ -113,7 +171,7 @@ async def _generic_agent_flow(
                 "database_name": schema_result.database_name
             },
             query_executed=True,
-            execution_results=[db_query_result],  # This contains the actual data
+            execution_results=[db_query_result],  # This contains the actual data + report
             total_records_found=first_result.row_count,
             total_execution_time_ms=first_result.execution_time_ms,
             execution_errors=None
@@ -141,7 +199,7 @@ async def _generic_agent_flow(
         )
 
 class PatientService:
-    """Patient information service."""
+    """Patient information service with personalized health reports."""
     
     def __init__(self, db_manager, bedrock_service: BedrockService, db_ops_service: DatabaseOperationService):
         self.db_manager = db_manager
@@ -164,29 +222,30 @@ class PatientService:
                 patient_id,
                 default_query,
                 "patient",
-                PATIENT_AGENT_PROMPT
+                PATIENT_AGENT_PROMPT,
+                PATIENT_REPORT_PROMPT
             )
             return result
 
         except Exception as e:
             return QueryExecutionResponse(
-                status="error",
-                message=f"Patient service error: {str(e)}",
-                data=[],
-                execution_time_ms=0,
-                row_count=0,
                 generated_query="",
                 patient_id=patient_id,
                 query_type="patient",
                 model_used="bedrock-claude",
                 schema_tables_count=0,
+                status="error",
                 timestamp=datetime.now().isoformat(),
                 connection_info={"connection_id": connection_id, "database_type": "unknown"},
-                query_executed=False
+                query_executed=False,
+                execution_results=None,
+                total_records_found=0,
+                total_execution_time_ms=0,
+                execution_errors=[f"Patient service error: {str(e)}"]
             )
 
 class MedicationService:
-    """Medication service."""
+    """Medication service with personalized health reports."""
     
     def __init__(self, db_manager, bedrock_service: BedrockService, db_ops_service: DatabaseOperationService):
         self.db_manager = db_manager
@@ -209,30 +268,30 @@ class MedicationService:
                 patient_id,
                 default_query,
                 "medication",
-                MEDICATION_AGENT_PROMPT
+                MEDICATION_AGENT_PROMPT,
+                MEDICATION_REPORT_PROMPT
             )
             return result
 
         except Exception as e:
             return QueryExecutionResponse(
-                status="error",
-                message=f"Medication service error: {str(e)}",
-                data=[],
-                execution_time_ms=0,
-                row_count=0,
                 generated_query="",
                 patient_id=patient_id,
                 query_type="medication",
                 model_used="bedrock-claude",
                 schema_tables_count=0,
+                status="error",
                 timestamp=datetime.now().isoformat(),
                 connection_info={"connection_id": connection_id, "database_type": "unknown"},
-                query_executed=False
+                query_executed=False,
+                execution_results=None,
+                total_records_found=0,
+                total_execution_time_ms=0,
+                execution_errors=[f"Medication service error: {str(e)}"]
             )
 
-# Apply the same pattern to all other service classes...
 class FollowupService:
-    """Follow-up service."""
+    """Follow-up service with personalized health reports."""
     
     def __init__(self, db_manager, bedrock_service: BedrockService, db_ops_service: DatabaseOperationService):
         self.db_manager = db_manager
@@ -244,20 +303,21 @@ class FollowupService:
             default_query = "SELECT followup details FROM followups WHERE patient_id = :patient_id"
             return await _generic_agent_flow(
                 self.db_manager, self.bedrock_service, self.db_ops_service,
-                connection_id, patient_id, default_query, "followup", FOLLOWUP_AGENT_PROMPT
+                connection_id, patient_id, default_query, "followup", 
+                FOLLOWUP_AGENT_PROMPT, FOLLOWUP_REPORT_PROMPT
             )
         except Exception as e:
             return QueryExecutionResponse(
-                status="error", message=f"Followup service error: {str(e)}", data=[],
-                execution_time_ms=0, row_count=0, generated_query="", patient_id=patient_id,
-                query_type="followup", model_used="bedrock-claude", schema_tables_count=0,
+                generated_query="", patient_id=patient_id, query_type="followup", 
+                model_used="bedrock-claude", schema_tables_count=0, status="error",
                 timestamp=datetime.now().isoformat(),
                 connection_info={"connection_id": connection_id, "database_type": "unknown"},
-                query_executed=False
+                query_executed=False, execution_results=None, total_records_found=0,
+                total_execution_time_ms=0, execution_errors=[f"Followup service error: {str(e)}"]
             )
 
 class ConditionService:
-    """Medical conditions service."""
+    """Medical conditions service with personalized health reports."""
     
     def __init__(self, db_manager, bedrock_service: BedrockService, db_ops_service: DatabaseOperationService):
         self.db_manager = db_manager
@@ -269,20 +329,21 @@ class ConditionService:
             default_query = "SELECT condition details FROM conditions WHERE patient_id = :patient_id"
             return await _generic_agent_flow(
                 self.db_manager, self.bedrock_service, self.db_ops_service,
-                connection_id, patient_id, default_query, "condition", CONDITION_AGENT_PROMPT
+                connection_id, patient_id, default_query, "condition", 
+                CONDITION_AGENT_PROMPT, CONDITION_REPORT_PROMPT
             )
         except Exception as e:
             return QueryExecutionResponse(
-                status="error", message=f"Condition service error: {str(e)}", data=[],
-                execution_time_ms=0, row_count=0, generated_query="", patient_id=patient_id,
-                query_type="condition", model_used="bedrock-claude", schema_tables_count=0,
+                generated_query="", patient_id=patient_id, query_type="condition", 
+                model_used="bedrock-claude", schema_tables_count=0, status="error",
                 timestamp=datetime.now().isoformat(),
                 connection_info={"connection_id": connection_id, "database_type": "unknown"},
-                query_executed=False
+                query_executed=False, execution_results=None, total_records_found=0,
+                total_execution_time_ms=0, execution_errors=[f"Condition service error: {str(e)}"]
             )
 
 class LabResultService:
-    """Laboratory results service."""
+    """Laboratory results service with personalized health reports."""
     
     def __init__(self, db_manager, bedrock_service: BedrockService, db_ops_service: DatabaseOperationService):
         self.db_manager = db_manager
@@ -294,20 +355,21 @@ class LabResultService:
             default_query = "SELECT lab results FROM lab_results WHERE patient_id = :patient_id"
             return await _generic_agent_flow(
                 self.db_manager, self.bedrock_service, self.db_ops_service,
-                connection_id, patient_id, default_query, "lab_result", LAB_RESULT_AGENT_PROMPT
+                connection_id, patient_id, default_query, "lab_result", 
+                LAB_RESULT_AGENT_PROMPT, LAB_RESULT_REPORT_PROMPT
             )
         except Exception as e:
             return QueryExecutionResponse(
-                status="error", message=f"Lab result service error: {str(e)}", data=[],
-                execution_time_ms=0, row_count=0, generated_query="", patient_id=patient_id,
-                query_type="lab_result", model_used="bedrock-claude", schema_tables_count=0,
+                generated_query="", patient_id=patient_id, query_type="lab_result", 
+                model_used="bedrock-claude", schema_tables_count=0, status="error",
                 timestamp=datetime.now().isoformat(),
                 connection_info={"connection_id": connection_id, "database_type": "unknown"},
-                query_executed=False
+                query_executed=False, execution_results=None, total_records_found=0,
+                total_execution_time_ms=0, execution_errors=[f"Lab result service error: {str(e)}"]
             )
 
 class ProcedureService:
-    """Medical procedures service."""
+    """Medical procedures service with personalized health reports."""
     
     def __init__(self, db_manager, bedrock_service: BedrockService, db_ops_service: DatabaseOperationService):
         self.db_manager = db_manager
@@ -319,20 +381,21 @@ class ProcedureService:
             default_query = "SELECT procedure details FROM procedures WHERE patient_id = :patient_id"
             return await _generic_agent_flow(
                 self.db_manager, self.bedrock_service, self.db_ops_service,
-                connection_id, patient_id, default_query, "procedure", PROCEDURE_AGENT_PROMPT
+                connection_id, patient_id, default_query, "procedure", 
+                PROCEDURE_AGENT_PROMPT, PROCEDURE_REPORT_PROMPT
             )
         except Exception as e:
             return QueryExecutionResponse(
-                status="error", message=f"Procedure service error: {str(e)}", data=[],
-                execution_time_ms=0, row_count=0, generated_query="", patient_id=patient_id,
-                query_type="procedure", model_used="bedrock-claude", schema_tables_count=0,
+                generated_query="", patient_id=patient_id, query_type="procedure", 
+                model_used="bedrock-claude", schema_tables_count=0, status="error",
                 timestamp=datetime.now().isoformat(),
                 connection_info={"connection_id": connection_id, "database_type": "unknown"},
-                query_executed=False
+                query_executed=False, execution_results=None, total_records_found=0,
+                total_execution_time_ms=0, execution_errors=[f"Procedure service error: {str(e)}"]
             )
 
 class AllergyService:
-    """Allergy information service."""
+    """Allergy information service with personalized health reports."""
     
     def __init__(self, db_manager, bedrock_service: BedrockService, db_ops_service: DatabaseOperationService):
         self.db_manager = db_manager
@@ -344,20 +407,21 @@ class AllergyService:
             default_query = "SELECT allergy details FROM allergies WHERE patient_id = :patient_id"
             return await _generic_agent_flow(
                 self.db_manager, self.bedrock_service, self.db_ops_service,
-                connection_id, patient_id, default_query, "allergy", ALLERGY_AGENT_PROMPT
+                connection_id, patient_id, default_query, "allergy", 
+                ALLERGY_AGENT_PROMPT, ALLERGY_REPORT_PROMPT
             )
         except Exception as e:
             return QueryExecutionResponse(
-                status="error", message=f"Allergy service error: {str(e)}", data=[],
-                execution_time_ms=0, row_count=0, generated_query="", patient_id=patient_id,
-                query_type="allergy", model_used="bedrock-claude", schema_tables_count=0,
+                generated_query="", patient_id=patient_id, query_type="allergy", 
+                model_used="bedrock-claude", schema_tables_count=0, status="error",
                 timestamp=datetime.now().isoformat(),
                 connection_info={"connection_id": connection_id, "database_type": "unknown"},
-                query_executed=False
+                query_executed=False, execution_results=None, total_records_found=0,
+                total_execution_time_ms=0, execution_errors=[f"Allergy service error: {str(e)}"]
             )
 
 class AppointmentService:
-    """Appointment management service."""
+    """Appointment management service with personalized health reports."""
     
     def __init__(self, db_manager, bedrock_service: BedrockService, db_ops_service: DatabaseOperationService):
         self.db_manager = db_manager
@@ -369,20 +433,21 @@ class AppointmentService:
             default_query = "SELECT appointment details FROM appointments WHERE patient_id = :patient_id"
             return await _generic_agent_flow(
                 self.db_manager, self.bedrock_service, self.db_ops_service,
-                connection_id, patient_id, default_query, "appointment", APPOINTMENT_AGENT_PROMPT
+                connection_id, patient_id, default_query, "appointment", 
+                APPOINTMENT_AGENT_PROMPT, APPOINTMENT_REPORT_PROMPT
             )
         except Exception as e:
             return QueryExecutionResponse(
-                status="error", message=f"Appointment service error: {str(e)}", data=[],
-                execution_time_ms=0, row_count=0, generated_query="", patient_id=patient_id,
-                query_type="appointment", model_used="bedrock-claude", schema_tables_count=0,
+                generated_query="", patient_id=patient_id, query_type="appointment", 
+                model_used="bedrock-claude", schema_tables_count=0, status="error",
                 timestamp=datetime.now().isoformat(),
                 connection_info={"connection_id": connection_id, "database_type": "unknown"},
-                query_executed=False
+                query_executed=False, execution_results=None, total_records_found=0,
+                total_execution_time_ms=0, execution_errors=[f"Appointment service error: {str(e)}"]
             )
 
 class DietService:
-    """Dietary information service."""
+    """Dietary information service with personalized health reports."""
     
     def __init__(self, db_manager, bedrock_service: BedrockService, db_ops_service: DatabaseOperationService):
         self.db_manager = db_manager
@@ -394,16 +459,17 @@ class DietService:
             default_query = "SELECT diet details FROM diet_plans WHERE patient_id = :patient_id"
             return await _generic_agent_flow(
                 self.db_manager, self.bedrock_service, self.db_ops_service,
-                connection_id, patient_id, default_query, "diet", DIET_AGENT_PROMPT
+                connection_id, patient_id, default_query, "diet", 
+                DIET_AGENT_PROMPT, DIET_REPORT_PROMPT
             )
         except Exception as e:
             return QueryExecutionResponse(
-                status="error", message=f"Diet service error: {str(e)}", data=[],
-                execution_time_ms=0, row_count=0, generated_query="", patient_id=patient_id,
-                query_type="diet", model_used="bedrock-claude", schema_tables_count=0,
+                generated_query="", patient_id=patient_id, query_type="diet", 
+                model_used="bedrock-claude", schema_tables_count=0, status="error",
                 timestamp=datetime.now().isoformat(),
                 connection_info={"connection_id": connection_id, "database_type": "unknown"},
-                query_executed=False
+                query_executed=False, execution_results=None, total_records_found=0,
+                total_execution_time_ms=0, execution_errors=[f"Diet service error: {str(e)}"]
             )
 
 # Export all services
