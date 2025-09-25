@@ -93,8 +93,11 @@ async def login(
 
         if not user:
             raise HTTPException(status_code=401, detail="Invalid username or password")
+        
+        connection_id = str(user.get("_id"))
+ 
+        return {"message": "Login Success", "username": request.username, "connection_id": connection_id}
 
-        return {"message": "Login Success", "username": request.username}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Login failed: {str(e)}")

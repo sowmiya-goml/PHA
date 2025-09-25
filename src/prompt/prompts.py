@@ -371,13 +371,6 @@ Generate a detailed, professional medical condition report that includes:
 - Dont Add the Source ID in the the response itself, Atlast Under the topic named **citation** Provide the Souce reference.
 **Output Format**:
 - start with the heading **Follow-Up Summary** (rendered in bold using markdown and in h3).
-- Use clear **section headings** like:
-    - **Upcoming Appointment**
-- Display all dates in a clear format like: `April 8, 2025 – 2:36 PM UTC`
-- Your response should be comprehensive, easy to read, and medically accurate.
-- Do not skip any data; even partial details should be interpreted if possible.
-- Do not hallucinate or make up any data.
-- If there is no data in the input then just return "No upcoming appointment found".
 
 """
 

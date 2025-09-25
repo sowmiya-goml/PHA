@@ -188,6 +188,7 @@ class BedrockService:
             # Step 4: Extract and clean the generated query
             generated_query = self._extract_query_from_response(response["raw_response"])
             
+            
             return {
                 "status": "success",
                 "query": self._clean_query(generated_query),
@@ -354,13 +355,14 @@ class BedrockService:
         if query.endswith('```'):
             query = query[:-3]
         
-        # Remove comments and clean up
-        query = re.sub(r'--.*?\n', '\n', query)  # Remove SQL comments
-        query = re.sub(r'/\*.*?\*/', '', query, flags=re.DOTALL)  # Remove multi-line comments
-        query = re.sub(r'\n\s*\n\s*\n', '\n\n', query)  # Remove excessive empty lines
-        query = re.sub(r'\s+', ' ', query)  # Normalize whitespace
-        query = query.replace(' ;', ';')  # Fix semicolon spacing
         
+        query = re.sub(r'--.*?\n', '\n', query)
+        query = re.sub(r'/\*.*?\*/', '', query, flags=re.DOTALL) 
+        query = re.sub(r'\n\s*\n\s*\n', '\n\n', query)
+        query = re.sub(r'\s+', ' ', query) 
+        query = query.replace(' ;', ';')
+        query = re.sub(r'[\\/]', '', query)
+
         return query.strip()
     
     def test_bedrock_connection(self) -> Dict[str, Any]:
