@@ -57,7 +57,7 @@ class DatabaseSchemaExtractor:
                     'port': parsed.port,
                     'username': parsed.username,
                     'password': parsed.password,
-                    'database': parsed.path.lstrip('/'),
+                    'database_name': parsed.path.lstrip('/'),
                     'scheme': parsed.scheme,
                     'query': parse_qs(parsed.query)
                 }
@@ -167,7 +167,7 @@ class DatabaseSchemaExtractor:
                     'port': parsed.port,
                     'username': parsed.username,
                     'password': parsed.password,
-                    'database': parsed.path.lstrip('/'),
+                    'database_name': parsed.path.lstrip('/'),
                     'scheme': parsed.scheme
                 }
                 
