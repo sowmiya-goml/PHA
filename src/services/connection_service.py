@@ -313,6 +313,8 @@ class ConnectionService:
             return await self._test_oracle_connection(connection)
         elif db_type in ["sql-server", "mssql"]:
             return await self._test_sqlserver_connection(connection)
+        elif db_type == "snowflake":
+            return await self._test_snowflake_connection(connection)
         else:
             return ConnectionTestResult(
                 status="info",
@@ -459,7 +461,90 @@ class ConnectionService:
             )
         except Exception as e:
             return ConnectionTestResult(status="error", message=f"SQL Server connection failed: {str(e)}")
-
+        
+    async def _test_snowflake_connection(self, connection: DatabaseConnection) -> ConnectionTestResult:
+        """Test Snowflake connection."""
+        try:
+            import snowflake.connector
+            from urllib.parse import urlparse, parse_qs
+            
+            # Parse Snowflake connection string
+            parsed = urlparse(connection.connection_string)
+            
+            # Extract account identifier - handle different formats
+            hostname = parsed.hostname
+            account = hostname.replace('.snowflakecomputing.com', '') if hostname else ''
+            
+            # Handle different account identifier formats
+            if '.ap-south-1.aws' in account:
+                account = account.replace('.ap-south-1.aws', '')
+            elif '.aws' in account or '.azure' in account or '.gcp' in account:
+                # Other cloud regions - use account part only
+                parts = account.split('.')
+                account = parts[0]
+            
+            # Parse path components
+            path_parts = [p for p in parsed.path.split('/') if p]
+            database = path_parts[0] if len(path_parts) > 0 else 'PHA'
+            schema = path_parts[1] if len(path_parts) > 1 else 'PUBLIC'
+            
+            # Parse query parameters
+            query_params = parse_qs(parsed.query)
+            
+            # Build connection parameters
+            conn_params = {
+                'user': parsed.username,
+                'password': parsed.password,
+                'account': account,
+                'database': database,
+                'schema': schema
+            }
+            
+            # Add optional parameters if they exist
+            warehouse = query_params.get('warehouse', [''])[0]
+            role = query_params.get('role', [''])[0]
+            
+            if warehouse:
+                conn_params['warehouse'] = warehouse
+            if role:
+                conn_params['role'] = role
+            
+            # Test the connection
+            conn = snowflake.connector.connect(**conn_params)
+            
+            # Test with a simple query
+            cursor = conn.cursor()
+            cursor.execute("SELECT CURRENT_VERSION()")
+            version_result = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            
+            return ConnectionTestResult(
+                status="success", 
+                message=f"Snowflake connection successful. Version: {version_result[0] if version_result else 'Unknown'}"
+            )
+            
+        except ImportError:
+            return ConnectionTestResult(
+                status="error",
+                message="Snowflake connector not installed. Run: pip install snowflake-connector-python"
+            )
+        except snowflake.connector.errors.DatabaseError as e:
+            return ConnectionTestResult(
+                status="error", 
+                message=f"Snowflake database error: {str(e)}"
+            )
+        except snowflake.connector.errors.ProgrammingError as e:
+            return ConnectionTestResult(
+                status="error", 
+                message=f"Snowflake programming error: {str(e)}"
+            )
+        except Exception as e:
+            return ConnectionTestResult(
+                status="error", 
+                message=f"Snowflake connection failed: {str(e)}"
+            )
+        
     async def get_database_schema(self, connection_id: str) -> DatabaseSchemaResult:
         """Get the schema of a database connection using the enhanced multi-database extractor."""
         collection = self.db_manager.get_connections_collection()

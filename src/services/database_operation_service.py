@@ -34,16 +34,27 @@ class DatabaseOperationService:
     
     def _serialize_datetime_objects(self, data: List[Dict]) -> List[Dict]:
         """Convert datetime objects to ISO format strings for JSON serialization."""
+        import decimal
+        from datetime import datetime, date, time
+        
         serialized_data = []
         for item in data:
             serialized_item = {}
             for key, value in item.items():
-                if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
+                if isinstance(value, (datetime, date, time)):
                     serialized_item[key] = value.isoformat()
+                elif isinstance(value, decimal.Decimal):
+                    serialized_item[key] = float(value)
                 elif value is None:
                     serialized_item[key] = None
                 else:
-                    serialized_item[key] = value
+                    try:
+                        # Try to serialize the value to check if it's JSON serializable
+                        json.dumps(value)
+                        serialized_item[key] = value
+                    except (TypeError, ValueError):
+                        # If not serializable, convert to string
+                        serialized_item[key] = str(value)
             serialized_data.append(serialized_item)
         return serialized_data
     
@@ -145,9 +156,51 @@ class DatabaseOperationService:
         else:
             raise ValueError(f"Unsupported database type: {database_type}")
     
+    def _parse_snowflake_connection_string(self, connection_string: str) -> Dict[str, Any]:
+        """Parse Snowflake connection string specifically."""
+        from urllib.parse import urlparse, parse_qs
+        
+        parsed = urlparse(connection_string)
+        
+        # Extract account identifier - handle different formats
+        hostname = parsed.hostname
+        account = hostname.replace('.snowflakecomputing.com', '') if hostname else ''
+        
+        # Handle different account identifier formats
+        if '.ap-south-1.aws' in account:
+            account = account.replace('.ap-south-1.aws', '')
+        elif '.aws' in account or '.azure' in account or '.gcp' in account:
+            # Other cloud regions - use account part only
+            parts = account.split('.')
+            account = parts[0]
+        
+        # Parse path components
+        path_parts = [p for p in parsed.path.split('/') if p]
+        database = path_parts[0] if len(path_parts) > 0 else 'PHA'
+        schema = path_parts[1] if len(path_parts) > 1 else 'PUBLIC'
+        
+        # Parse query parameters
+        query_params = parse_qs(parsed.query)
+        
+        return {
+            'account': account,
+            'username': parsed.username,
+            'password': parsed.password,
+            'database_name': database,
+            'schema': schema,
+            'warehouse': query_params.get('warehouse', [''])[0],
+            'role': query_params.get('role', [''])[0],
+            'host': hostname,
+            'scheme': parsed.scheme,
+            'query': query_params
+        }
+
     def _get_connection_params(self, connection):
         """Get connection parameters using existing connection service logic."""
-        return self.connection_service._parse_connection_string(connection)
+        if connection.database_type.lower() == 'snowflake':
+            return self._parse_snowflake_connection_string(connection.connection_string)
+        else:
+            return self.connection_service._parse_connection_string(connection)
     
     async def _execute_mongodb_query(self, connection, query: str, limit: int, params: dict = None) -> List[DatabaseQueryResult]:
         """Execute MongoDB query."""
@@ -216,7 +269,6 @@ class DatabaseOperationService:
         conn = None
         
         try:
-            #print("👍👍👍👍👍👍👍👍")
             conn_params = self._get_connection_params(connection)
             
             # Add LIMIT if not present
@@ -253,7 +305,6 @@ class DatabaseOperationService:
             
             execution_time = (time.time() - start_time) * 1000
             
-            #print("🎶🎶🎶🎶🎶🎶🎶🎶🎶🎶🎶")
             return [DatabaseQueryResult(
                 table_name="query_result",
                 query=query,
@@ -397,38 +448,57 @@ class DatabaseOperationService:
         conn = None
         
         try:
-            conn_params = self._get_connection_params(connection)
+            # Use the Snowflake-specific parser
+            conn_params = self._parse_snowflake_connection_string(connection.connection_string)
             
             # Add LIMIT if not present
             if 'LIMIT' not in query.upper():
                 query = f"{query} LIMIT {limit}"
             
-            # Prepare Snowflake connection parameters
+            # Prepare Snowflake connection parameters - use exact values from parsing
             snowflake_params = {
                 'user': conn_params['username'],
                 'password': conn_params['password'],
-                'account': conn_params['host'].replace('.snowflakecomputing.com', ''),
+                'account': conn_params['account'],
                 'database': conn_params['database_name'],
-                'schema': 'PUBLIC'
+                'schema': conn_params['schema']
             }
             
-            # Handle account identifier format
-            if '.ap-south-1.aws' in snowflake_params['account']:
-                snowflake_params['account'] = snowflake_params['account'].replace('.ap-south-1.aws', '')
-            elif '.aws' in snowflake_params['account'] or '.azure' in snowflake_params['account'] or '.gcp' in snowflake_params['account']:
-                snowflake_params['account'] = snowflake_params['account'].split('.')[0]
+            # Add optional parameters if they exist
+            if conn_params.get('warehouse'):
+                snowflake_params['warehouse'] = conn_params['warehouse']
+            if conn_params.get('role'):
+                snowflake_params['role'] = conn_params['role']
             
+            print(f"DEBUG: Snowflake connection params: {snowflake_params}")
+            
+            # Connect to Snowflake
             conn = snowflake.connector.connect(**snowflake_params)
             cursor = conn.cursor()
+            
+            # Execute query
+            print(f"DEBUG: Executing Snowflake query: {query}")
             cursor.execute(query)
             results = cursor.fetchall()
-            column_names = [desc[0] for desc in cursor.description]
-            data = [dict(zip(column_names, row)) for row in results]
+            
+            # Get column names
+            column_names = [desc[0] for desc in cursor.description] if cursor.description else []
+            
+            # Convert to dictionary format
+            data = []
+            for row in results:
+                row_dict = {}
+                for i, value in enumerate(row):
+                    column_name = column_names[i] if i < len(column_names) else f"column_{i}"
+                    row_dict[column_name] = value
+                data.append(row_dict)
             
             # Serialize datetime objects
             serialized_data = self._serialize_datetime_objects(data)
             
             execution_time = (time.time() - start_time) * 1000
+            
+            print(f"DEBUG: Snowflake query returned {len(serialized_data)} rows in {execution_time:.2f}ms")
             
             return [DatabaseQueryResult(
                 table_name="query_result",
@@ -439,7 +509,11 @@ class DatabaseOperationService:
             )]
             
         except Exception as e:
+            print(f"DEBUG: Snowflake query execution error: {str(e)}")
             raise Exception(f"Snowflake query execution failed: {str(e)}")
         finally:
             if conn:
-                conn.close()
+                try:
+                    conn.close()
+                except:
+                    pass
