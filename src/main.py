@@ -4,10 +4,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from core.config import settings
-from api import connections, healthcare, dashboard, routes
+from api import connections, healthcare, dashboard, routes, epic_tools, cerner_router, epic_router, cerner_tools
 from utils.helpers import setup_logging
 from db.session import db_manager
 from api.agents import router as agents_router
+
 
 setup_logging()
 @asynccontextmanager
@@ -52,6 +53,10 @@ app.include_router(healthcare.router, prefix="/healthcare", tags=["Healthcare Qu
 app.include_router(dashboard.router, prefix="/dashboard", tags=["Patient Dashboard"])
 app.include_router(routes.router, prefix="/route")
 app.include_router(agents_router, prefix="/agents", tags=["agents"])
+app.include_router(epic_tools.router)
+app.include_router(cerner_router.router)
+app.include_router(epic_router.router)
+app.include_router(cerner_tools.router)
 
 
 if __name__ == "__main__":
