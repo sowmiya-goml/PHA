@@ -382,20 +382,20 @@ async def generate_vitals_summary(patient_id: str, organization: str):
     try:
         # Fetch raw observations
         observations = await fetch_epic_observations(patient_id, organization)
-        
-        print("Complete patient observation data:")
-        print(json.dumps(observations, indent=2))
-        
+
+        #print("Complete patient observation data:")
+        #print(json.dumps(observations, indent=2))
+
         # Preprocess with formatter
         processed_obs = extract_observations_epic(observations)
         
-        print("Processed obs samples:", processed_obs[:5])
+        #print("Processed obs samples:", processed_obs[:5])
         
         # Extract specific vitals
         vitals = extract_vitals_from_observations(processed_obs)
         
         # Debug unmatched
-        print("Vitals counts:", {k: len(v) for k, v in vitals.items()})
+        '''print("Vitals counts:", {k: len(v) for k, v in vitals.items()})
         unmatched = [obs.get("code_display") for obs in processed_obs if not any(
             any(c.lower().replace(" ", "_") in obs.get("code_display", "").lower().replace(" ", "_") for c in codes)
             for codes in [
@@ -408,7 +408,7 @@ async def generate_vitals_summary(patient_id: str, organization: str):
                 ["recovery"]
             ]
         )]
-        print("Unmatched codes (sample):", unmatched[:10])
+        print("Unmatched codes (sample):", unmatched[:10])'''
         
         return vitals
     except Exception as e:

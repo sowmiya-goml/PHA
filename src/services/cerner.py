@@ -321,8 +321,8 @@ async def generate_vitals_summary(patient_id: str, organization: str):
         observations = await fetch_cerner_observations(patient_id, organization)
         
         # Print complete patient observation data (for debugging)
-        print("Complete patient observation data:")
-        print(json.dumps(observations, indent=2))
+        #print("Complete patient observation data:")
+        #print(json.dumps(observations, indent=2))
         
         # Preprocess with formatter (reuse Epic's extract_observations_epic)
         processed_obs = extract_observations_epic(observations)

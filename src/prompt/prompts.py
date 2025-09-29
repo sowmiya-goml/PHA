@@ -620,5 +620,5 @@ Based on the following data retrieved from the database, create a comprehensive,
 **Retrieved Data:** {diet_data}
 
 You are a clinical AI Expert and trained dietition. Given the {diet_data}, generate a personalized weekly diet plan in **proper format point by point**.
-Also add a section above weekly plan which should have the abnormal observations, vitals and their respective food recommendations. I want you to generate diet plan for both vegetarian and non-vegetarian patients.
+Also add a section above weekly plan which should have the abnormal observations, vitals and their respective food recommendations. I want you to generate diet plan for both vegetarian and non-vegetarian patients separately.
 """
