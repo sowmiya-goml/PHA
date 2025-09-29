@@ -34,7 +34,36 @@ class PatientDashboardController:
         """Setup routes for patient dashboard endpoints."""
         
         # Heart Rate endpoint
-        @self.router.get("/patients/{patient_id}/heart-rate")
+        
+        @self.router.get("/patients_dasboard/{patient_id}/all")
+        async def get_patient_all_data(
+            patient_id: str = Path(..., description="Patient ID to fetch all data"),
+            connection_id: str = Query(..., description="Database connection ID to use for fetching data"),
+            connection_service: ConnectionService = Depends(self.get_connection_service),
+            db_operation_service: DatabaseOperationService = Depends(self.get_database_operation_service)
+        ):
+            """Get all data for a patient from the specified database connection."""
+            data_types = {
+                "heart_rate": ["heart_rate", "status", "recorded_at", "device_id"],
+                "blood_pressure": ["systolic", "diastolic", "recorded_at", "device_id"],
+                "bmi": ["bmi", "weight", "height", "recorded_at"],
+                "spo2": ["spo2_percentage", "recorded_at", "device_id"],
+                "temperature": ["temperature_celsius", "temperature_fahrenheit", "recorded_at", "device_id"],
+                "blood_sugar": ["glucose_level", "test_type", "recorded_at"],
+                "recovery_tracker": ["stage", "progress_percentage", "notes", "updated_at"]
+            }
+            all_data = {}
+            for data_type, columns in data_types.items():
+                try:
+                    result = await self._get_patient_vital_data(
+                        connection_service, db_operation_service, connection_id, patient_id, data_type, columns
+                    )
+                    all_data[data_type] = result
+                except HTTPException as e:
+                    all_data[data_type] = {"error": e.detail}
+            return all_data
+        
+        '''@self.router.get("/patients/{patient_id}/heart-rate")
         async def get_patient_heart_rate(
             patient_id: str = Path(..., description="Patient ID to fetch heart rate data for"),
             connection_id: str = Query(..., description="Database connection ID to use for fetching data"),
@@ -130,7 +159,7 @@ class PatientDashboardController:
             return await self._get_patient_vital_data(
                 connection_service, db_operation_service, connection_id, patient_id, "recovery_tracker",
                 ["stage", "progress_percentage", "notes", "updated_at"]
-            )
+            )'''
 
     async def _get_patient_vital_data(
         self, 
