@@ -501,9 +501,9 @@ def nutrition_prompt(data):
 You are a clinical AI Expert. Given the nutrition data {data} generate a descriptive report for this and include only the active ones.
 """
 
-def diet_prompt(patient,condition,procedure,allergy,obs,vitals):
+def diet_prompt(patient,procedure,allergy,obs,vitals):
     return f"""
-You are a clinical AI Expert and trained dietition. Given the patient {patient}, condition {condition}, procedure {procedure}, allergy {allergy}, vitals {vitals} and observation {obs} data, generate a personalized weekly diet plan in **proper format point by point**.
+You are a clinical AI Expert and trained dietition. Given the patient {patient}, procedure {procedure}, allergy {allergy}, vitals {vitals} and observation {obs} data, generate a personalized weekly diet plan in **proper format point by point**.
 Also add a section above weekly plan which should have the abnormal observations, vitals and their respective food recommendations. I want you to generate diet plan for both vegetarian and non-vegetarian patients.
 """
 def risk_prompt(patient,condition,medication,obs,vitals):

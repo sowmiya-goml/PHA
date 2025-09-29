@@ -835,22 +835,18 @@ def extract_vitals_from_observations(observations):
     vitals = {
         "heartrate": [],
         "bp": [],
-        "bmi": [],
         "spo2": [],
         "temperature": [],
-        "blood_sugar": [],
-        "recovery_tracker": []
+        "blood_sugar": []
     }
     
     # LOINC codes and common display names/abbreviations (Epic often uses short forms)
     code_mappings = {
         "heartrate": ["8867-4", "heart rate", "hr", "pulse", "heart_rate"],
         "bp": ["8480-6", "blood pressure", "bp", "blood_pressure"],
-        "bmi": ["39156-5", "bmi", "body mass index", "body_mass_index"],
         "spo2": ["59408-5", "oxygen saturation", "spo2", "o2_sat", "oxygen_sat"],
         "temperature": ["8310-5", "temperature", "temp"],
-        "blood_sugar": ["2339-0", "glucose", "blood sugar", "blood_sugar"],
-        "recovery_tracker": ["recovery"]  # Adjust if custom
+        "blood_sugar": ["2339-0", "glucose", "blood sugar", "blood_sugar"]
     }
     
     for obs in observations:
@@ -885,5 +881,6 @@ def extract_vitals_from_observations(observations):
     # Sort each list by datetime descending (latest first)
     for key in vitals:
         vitals[key].sort(key=lambda x: x.get("datetime", ""), reverse=True)
+        vitals[key] = vitals[key][:5]
     
     return vitals

@@ -7,7 +7,7 @@ import logging
 from connector_fhir.cerner import refresh_cerner_access_token
 from utils.cerner import get_cerner_patient_info, get_cerner_observations, get_cerner_medication, get_cerner_condition, get_cerner_observations_lab, get_appointments, get_cerner_diagnostic_lab, get_procedure, get_allergy,get_nutrition
 from prompt.prompt import  medication_prompt, build_diagnosis_prompt, lab_prompt, cerner_followup_prompt, procedure_prompt_epic, unify_prompt, observation_vitals_prompt, observation_patient_prompt, allergy_prompt, immunization_prompt, merge_patient_prompt, unify_obs_prompt, unify_procedure_prompt, cerner_upcoming_prompt,nutrition_prompt, diet_prompt, risk_prompt, aftercare_prompt
-from utils.formatter_fhir import extract_patient_name, preprocess_observations, preprocess_condition, clean_fhir_data, preprocess_procedure, process_allergy, process_immunization, move_citations_to_end, preprocess_medications, extract_condition, extract_procedure, extract_allergy, extract_observations, extract_hours, build_reminder_schedule, parse_markdown_table
+from utils.formatter_fhir import extract_patient_name, preprocess_observations, preprocess_condition, clean_fhir_data, preprocess_procedure, process_allergy, process_immunization, move_citations_to_end, preprocess_medications, extract_condition, extract_procedure, extract_allergy, extract_observations, extract_hours, build_reminder_schedule, parse_markdown_table,extract_observations_epic, extract_vitals_from_observations  # Reuse Epic formatters
 from utils.aws import call_bedrock_summary
 from utils.chunking import chunk
 
@@ -168,17 +168,18 @@ async def generate_allergy_summary(patient_id: str, organization: str):
         async with httpx.AsyncClient(timeout=30.0) as client:
             data = await get_allergy(client, headers, patient_id)
             allergy=data['allergy']
-            immunization=data['immunization']
+            # immunization=data['immunization']
             cleaned_allergy=process_allergy(allergy)
-            cleaned_immunization=process_immunization(immunization)
+            # cleaned_immunization=process_immunization(immunization)
             summary=""
             allergy_summary = await chunk(cleaned_allergy, allergy_prompt)
             summary += allergy_summary
-            immunization_summary = await chunk(cleaned_immunization,  immunization_prompt)
-            summary += immunization_summary
+            # immunization_summary = await chunk(cleaned_immunization,  immunization_prompt)
+            # summary += immunization_summary
             print(summary) 
         prompt = unify_prompt(summary)
         return call_bedrock_summary(prompt)
+ 
 
     except Exception as e:
         logger.error(f"Medication summary generation failed: {str(e)}")
@@ -232,8 +233,8 @@ async def get_diet(patient_id: str,organization: str):
             patient_name = extract_patient_name(patient)
             vitals = await get_cerner_observations(client, headers, patient_id)
             processed_vitals=extract_observations(vitals)
-            condition=await get_cerner_condition(client, headers, patient_id)
-            preprocessed_condition=extract_condition(condition)
+            #condition=await get_cerner_condition(client, headers, patient_id)
+            #preprocessed_condition=extract_condition(condition)
             observation=await get_cerner_observations_lab(client, headers, patient_id)
             preprocessed_obs=extract_observations(observation)
             procedure=await get_procedure(client, headers, patient_id)
@@ -241,7 +242,7 @@ async def get_diet(patient_id: str,organization: str):
             allergy_immun=await get_allergy(client, headers, patient_id)
             allergy=allergy_immun['allergy']
             preprocessed_allergy=extract_allergy(allergy)
-            prompt = diet_prompt(patient_name, preprocessed_condition, preprocessed_procedure, preprocessed_allergy,preprocessed_obs,processed_vitals)
+            prompt = diet_prompt(patient_name, preprocessed_procedure, preprocessed_allergy,preprocessed_obs,processed_vitals)
             return call_bedrock_summary(prompt)
             
     except Exception as e:
@@ -294,4 +295,43 @@ async def generate_aftercare_summary(patient_id: str, organization: str):
     except Exception as e:
         logger.error(f"Medication summary generation failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to generate medication summary")
+    
+async def fetch_cerner_observations(patient_id: str, organization: str):
+    try:
+        access_token = refresh_cerner_access_token(organization)["access_token"]
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/fhir+json"
+        }
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Fetch vital-signs and laboratory observations
+            observations_vital = await get_cerner_observations(client, headers, patient_id, category="vital-signs")
+            observations_lab = await get_cerner_observations(client, headers, patient_id, category="laboratory")
+            observations = observations_vital + observations_lab
+            return observations
+    except Exception as e:
+        logger.error(f"Failed to fetch Cerner observations: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch observations")
+    
+        
+async def generate_vitals_summary(patient_id: str, organization: str):
+    try:
+        # Fetch raw observations
+        observations = await fetch_cerner_observations(patient_id, organization)
+        
+        # Print complete patient observation data (for debugging)
+        print("Complete patient observation data:")
+        print(json.dumps(observations, indent=2))
+        
+        # Preprocess with formatter (reuse Epic's extract_observations_epic)
+        processed_obs = extract_observations_epic(observations)
+        
+        # Extract specific vitals
+        vitals = extract_vitals_from_observations(processed_obs)
+        
+        return vitals
+    except Exception as e:
+        logger.error(f"Failed to generate vitals summary: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch or process vitals")
 

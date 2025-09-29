@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
-from services.cerner import generate_cerner_diagnosis_summary, generate_cerner_medication_summary, generate_cerner_patient_summary, generate_cerner_lab_summary, generate_cerner_followup_summary, generate_procedure_summary, generate_allergy_summary, generate_upcoming_cappointment_summary, generate_nutrition_summary, get_diet, risk, generate_aftercare_summary
+from services.cerner import generate_cerner_diagnosis_summary, generate_cerner_medication_summary, generate_cerner_patient_summary, generate_cerner_lab_summary, generate_cerner_followup_summary, generate_procedure_summary, generate_allergy_summary, generate_upcoming_cappointment_summary, generate_nutrition_summary, get_diet, risk, generate_aftercare_summary, generate_vitals_summary
 from schemas.schema import PatientSummary
 router = APIRouter()
 
@@ -47,3 +47,6 @@ async def riskpanel(patient_id: str,organization: str):
 @router.get("/aftercare/{organization}/{patient_id}", tags=["CERNER"])
 async def aftercare(patient_id: str,organization: str):
     return await generate_aftercare_summary(patient_id, organization)
+@router.get("/cerner-vitals-agent/{organization}/{patient_id}", tags=["CERNER"])
+async def generate_vitals_summary_endpoint(patient_id: str, organization: str):
+    return await generate_vitals_summary(patient_id, organization)

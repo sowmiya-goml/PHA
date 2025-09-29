@@ -6,6 +6,13 @@ from fastapi import APIRouter, HTTPException
 from typing import Optional, Dict
 from schemas.schema import LoginRequest
 
+from pydantic import BaseModel
+
+class LoginResponse(BaseModel):
+    authenticated: bool
+    organization: str
+ 
+
 
 router = APIRouter()
 
@@ -78,13 +85,18 @@ def refresh(organization: str):
     tokens = refresh_access_token(organization)
     return {"message": "Access token refreshed", "tokens": tokens}
 
-@router.post("/epic/login", response_model=Dict[str, bool], tags=["TEST"])
+
+@router.post("/epic/login", response_model=LoginResponse, tags=["TEST"])
 def login_user(login_request: LoginRequest):
     is_valid = validate_user_credentials(
         organization=login_request.organization_name,
         password=login_request.password
     )
     if is_valid:
-        return {"authenticated": True}
+        return LoginResponse(
+            authenticated=True,
+            organization=login_request.organization_name
+        )
     else:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+ 
