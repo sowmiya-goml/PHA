@@ -11,11 +11,11 @@ async def get_patient_info(client, headers, patient_id):
     return resp.json()
 
 
-async def get_observations(client, headers, patient_id):
-    resp = await client.get(
-        f"{FHIR_BASE_URL}/Observation?patient={patient_id}&category=vital-signs",
-        headers=headers
-    )
+async def get_observations(client, headers, patient_id, category="vital-signs"):
+    url = f"{FHIR_BASE_URL}/Observation?patient={patient_id}"
+    if category:
+        url += f"&category={category}"
+    resp = await client.get(url, headers=headers)
     if resp.status_code != 200:
         raise HTTPException(status_code=400, detail="Failed to fetch observations")
     return resp.json().get("entry", [])

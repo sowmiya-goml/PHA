@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from schemas.schema import PatientSummary, PatientRequest
-from services.epic import generate_patient_summary, generate_Followup_summary, generate_medication_summary, generate_condition_summary, generate_lab_summary, generate_procedure_summary, generate_allergy_summary, generate_upcoming_appointment_summary, generate_nutrition_summary, get_diet, risk, generate_aftercare_summary
+from services.epic import generate_patient_summary, generate_Followup_summary, generate_medication_summary, generate_condition_summary, generate_lab_summary, generate_procedure_summary, generate_allergy_summary, generate_upcoming_appointment_summary, generate_nutrition_summary, get_diet, risk, generate_aftercare_summary, fetch_epic_observations, generate_vitals_summary
 router = APIRouter()
 @router.get("/patient-agent/{organization}/{patient_id}", response_model=PatientSummary, tags=["EPIC"])
 async def generate_patient_observ(patient_id: str,organization: str):
@@ -51,3 +51,7 @@ async def riskpanel(patient_id: str,organization: str):
 @router.get("/Epic-aftercare/{organization}/{patient_id}", tags=["EPIC"])
 async def aftercare(patient_id: str,organization: str):
     return await generate_aftercare_summary(patient_id, organization)
+
+@router.get("/vitals-agent/{organization}/{patient_id}", tags=["EPIC"])
+async def get_patient_vitals(patient_id: str, organization: str):
+    return await generate_vitals_summary(patient_id, organization)

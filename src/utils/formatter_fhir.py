@@ -168,7 +168,7 @@ def preprocess_observations_epic(observations):
 
     return processed_observations
 
-def extract_observations_epic(observations):
+'''def extract_observations_epic(observations):
     processed_observations = []
     for item in observations:
         # print(item)
@@ -215,6 +215,52 @@ def extract_observations_epic(observations):
             "value": value,
             "reference_range": reference_range_text,
             # "interpretation": [interp.get("text") for interp in resource.get("interpretation", [])] if resource.get("interpretation") else [],
+            "note": [note.get("text") for note in resource.get("note", [])] if resource.get("note") else [],
+            "specimen": resource.get("specimen", {}).get("display"),
+        }
+
+        processed_observations.append(observation_data)
+
+    return processed_observations'''
+    
+def extract_observations_epic(observations):
+    # Handle FHIR Bundle format (if it's a dict) or list of entries
+    if isinstance(observations, dict) and observations.get("resourceType") == "Bundle":
+        observations = [entry.get("resource") for entry in observations.get("entry", []) if entry.get("resource")]
+    # If it's already a list of entries, extract resources
+    elif isinstance(observations, list) and observations and isinstance(observations[0], dict) and "resource" in observations[0]:
+        observations = [entry.get("resource") for entry in observations if entry.get("resource")]
+    
+    processed_observations = []
+    for item in observations:
+        resource = item  # Now item is the Observation resource dict
+
+        if not resource or resource.get("resourceType") != "Observation":
+            continue
+
+        # Extract categories
+        category_list = resource.get("category", [])
+        categories = [cat.get("text") for cat in category_list if "text" in cat]
+
+        # Extract coding display (e.g., LOINC code display name), with fallback
+        code_list = resource.get("code", {}).get("coding", [])
+        code_display = next((code.get("display") for code in code_list if code.get("display")), None)
+        if not code_display:
+            code_display = resource.get("code", {}).get("text")  # Fallback to code.text
+
+        # Get reference range text if available
+        reference_range = resource.get("referenceRange", [])
+        reference_range_text = reference_range[0].get("text") if reference_range else None
+
+        # Use extract_value_quantity for comprehensive value handling (includes BP components)
+        value = extract_value_quantity(resource)
+
+        observation_data = {
+            "status": resource.get("status"),
+            "code_display": code_display,
+            "effective_datetime": resource.get("effectiveDateTime"),
+            "value": value,
+            "reference_range": reference_range_text,
             "note": [note.get("text") for note in resource.get("note", [])] if resource.get("note") else [],
             "specimen": resource.get("specimen", {}).get("display"),
         }
@@ -784,3 +830,60 @@ def parse_markdown_table(table_text: str) -> list:
         normalized_data.append(normalized_item)
     
     return normalized_data
+
+def extract_vitals_from_observations(observations):
+    vitals = {
+        "heartrate": [],
+        "bp": [],
+        "bmi": [],
+        "spo2": [],
+        "temperature": [],
+        "blood_sugar": [],
+        "recovery_tracker": []
+    }
+    
+    # LOINC codes and common display names/abbreviations (Epic often uses short forms)
+    code_mappings = {
+        "heartrate": ["8867-4", "heart rate", "hr", "pulse", "heart_rate"],
+        "bp": ["8480-6", "blood pressure", "bp", "blood_pressure"],
+        "bmi": ["39156-5", "bmi", "body mass index", "body_mass_index"],
+        "spo2": ["59408-5", "oxygen saturation", "spo2", "o2_sat", "oxygen_sat"],
+        "temperature": ["8310-5", "temperature", "temp"],
+        "blood_sugar": ["2339-0", "glucose", "blood sugar", "blood_sugar"],
+        "recovery_tracker": ["recovery"]  # Adjust if custom
+    }
+    
+    for obs in observations:
+        code_display = obs.get("code_display", "").lower().replace(" ", "_")  # Normalize spaces
+        value = obs.get("value")
+        datetime = obs.get("effective_datetime")
+        
+        for vital, codes in code_mappings.items():
+            if any(c.lower().replace(" ", "_") in code_display for c in codes):
+                if vital == "bp" and isinstance(value, dict) and "systolic" in value:
+                    # BP has systolic/diastolic from extract_value_quantity
+                    systolic = value["systolic"]
+                    diastolic = value["diastolic"]
+                    vitals[vital].append({
+                        "systolic": systolic.get("value") if systolic else None,
+                        "diastolic": diastolic.get("value") if diastolic else None,
+                        "unit": systolic.get("unit") if systolic else None,
+                        "datetime": datetime
+                    })
+                elif value and isinstance(value, dict) and "value" in value:
+                    # Other vitals have simple value/unit
+                    vitals[vital].append({
+                        "value": value.get("value"),
+                        "unit": value.get("unit"),
+                        "datetime": datetime
+                    })
+                elif value and not isinstance(value, dict):
+                    # Fallback for string values
+                    vitals[vital].append({"value": value, "datetime": datetime})
+                break  # Stop after first match
+    
+    # Sort each list by datetime descending (latest first)
+    for key in vitals:
+        vitals[key].sort(key=lambda x: x.get("datetime", ""), reverse=True)
+    
+    return vitals

@@ -5,7 +5,7 @@ import logging
 from connector_fhir.epic import refresh_access_token
 from utils.epic import get_lab_results, get_patient_info, get_current_conditions, get_appointments,get_upcoming_appointments, get_observations, get_medications, get_procedure, get_allergy, get_nutrition
 from prompt.prompt import  medication_prompt, build_diagnosis_prompt, lab_prompt, procedure_prompt_epic, observation_patient_prompt, observation_vitals_prompt, unify_prompt, goal_prompt, before_appointment_prompt, after_appointment_prompt, allergy_prompt, immunization_prompt, merge_patient_prompt, unify_obs_prompt, cerner_upcoming_prompt, nutrition_prompt, diet_prompt, risk_prompt, aftercare_prompt
-from utils.formatter_fhir import extract_patient_name, clean_fhir_data, preprocess_observations, extract_epic_condition, extract_procedure, extract_allergy, extract_observations_epic, extract_observations, extract_epic_medications
+from utils.formatter_fhir import extract_patient_name, clean_fhir_data, preprocess_observations, extract_epic_condition, extract_procedure, extract_allergy, extract_observations_epic, extract_observations, extract_epic_medications, extract_vitals_from_observations
 from utils.aws import call_bedrock_summary
 from utils.chunking import chunk
 
@@ -358,3 +358,59 @@ async def generate_aftercare_summary(patient_id: str, organization: str):
     except Exception as e:
         logger.error(f"Medication summary generation failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to generate medication summary")
+    
+async def fetch_epic_observations(patient_id: str, organization: str):
+    try:
+        access_token = refresh_access_token(organization)["access_token"]
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/fhir+json"
+        }
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            observations_vital = await get_observations(client, headers, patient_id, category="vital-signs")
+            # Fetch laboratory observations (for blood sugar, etc.)
+            observations_lab = await get_observations(client, headers, patient_id, category="laboratory")
+            # Combine both
+            observations = observations_vital + observations_lab
+            return observations
+    except Exception as e:
+        logger.error(f"Failed to fetch Epic observations: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch observations")
+    
+async def generate_vitals_summary(patient_id: str, organization: str):
+    try:
+        # Fetch raw observations
+        observations = await fetch_epic_observations(patient_id, organization)
+        
+        print("Complete patient observation data:")
+        print(json.dumps(observations, indent=2))
+        
+        # Preprocess with formatter
+        processed_obs = extract_observations_epic(observations)
+        
+        print("Processed obs samples:", processed_obs[:5])
+        
+        # Extract specific vitals
+        vitals = extract_vitals_from_observations(processed_obs)
+        
+        # Debug unmatched
+        print("Vitals counts:", {k: len(v) for k, v in vitals.items()})
+        unmatched = [obs.get("code_display") for obs in processed_obs if not any(
+            any(c.lower().replace(" ", "_") in obs.get("code_display", "").lower().replace(" ", "_") for c in codes)
+            for codes in [
+                ["8867-4", "heart rate", "hr", "pulse", "heart_rate"],
+                ["8480-6", "blood pressure", "bp", "blood_pressure"],
+                ["39156-5", "bmi", "body mass index", "body_mass_index"],
+                ["59408-5", "oxygen saturation", "spo2", "o2_sat", "oxygen_sat"],
+                ["8310-5", "temperature", "temp"],
+                ["2339-0", "glucose", "blood sugar", "blood_sugar"],
+                ["recovery"]
+            ]
+        )]
+        print("Unmatched codes (sample):", unmatched[:10])
+        
+        return vitals
+    except Exception as e:
+        logger.error(f"Failed to generate vitals summary: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch or process vitals")
