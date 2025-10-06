@@ -8,6 +8,8 @@ from api import connections, healthcare, dashboard, routes, epic_tools, cerner_r
 from utils.helpers import setup_logging
 from db.session import db_manager
 from api.agents import router as agents_router
+from api.custom_query import router as custom_query_router
+
 
 
 setup_logging()
@@ -57,6 +59,8 @@ app.include_router(epic_tools.router)
 app.include_router(cerner_router.router)
 app.include_router(epic_router.router)
 app.include_router(cerner_tools.router)
+app.include_router(custom_query_router, prefix="/api/v1")
+
 
 
 if __name__ == "__main__":
