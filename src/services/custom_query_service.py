@@ -1,11 +1,10 @@
-"""Custom query agent service for dynamic user queries."""
-
 from typing import Dict, Any
 from datetime import datetime
 from services.bedrock_service import BedrockService
 from services.database_operation_service import DatabaseOperationService
 from services.connection_service import ConnectionService
 from schemas.database_operations import QueryExecutionResponse
+from prompt.prompts import CUSTOM_QUERY_REPORT_PROMPT
 import json
 
 
@@ -116,36 +115,14 @@ class CustomQueryService:
             # Format data for the LLM
             formatted_data = json.dumps(data, indent=2, default=str) if data else "No data available"
             
-            # Create report generation prompt
-            report_prompt = f"""You are an expert healthcare data analyst. Generate a comprehensive, professional report based on the following information:
-
-**User Query:** {user_query}
-**Generated SQL Query:** {generated_query}
-**Retrieved Data:** {formatted_data}
-**Database Type:** {schema_info.database_type}
-**Database Name:** {schema_info.database_name}
-
-Please create a detailed report that includes:
-
-1. **Executive Summary**
-   - Brief overview of what was requested and found
-   - Key findings and insights
-
-2. **Data Analysis**
-   - Detailed analysis of the retrieved data
-   - Patterns, trends, and notable observations
-   - Statistical insights where applicable
-
-3. **Technical Details**
-   - Query execution summary
-   - Data quality assessment
-   - Any limitations or considerations
-
-4. **Recommendations**
-   - Actionable insights based on the data
-   - Suggestions for further analysis if applicable
-
-Format the report in clear, professional markdown with appropriate headings and sections. Make it informative and easy to understand for both technical and non-technical audiences."""
+            # Create report generation prompt using the imported prompt
+            report_prompt = CUSTOM_QUERY_REPORT_PROMPT.format(
+                user_query=user_query,
+                generated_query=generated_query,
+                retrieved_data=formatted_data,
+                database_type=schema_info.database_type,
+                database_name=schema_info.database_name
+            )
 
             # Call Bedrock to generate the report
             report_response = await self.bedrock_service._call_bedrock_api(report_prompt)

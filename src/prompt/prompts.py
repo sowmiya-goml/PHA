@@ -622,3 +622,33 @@ Based on the following data retrieved from the database, create a comprehensive,
 You are a clinical AI Expert and trained dietition. Given the {diet_data}, generate a personalized weekly diet plan in **proper format point by point**.
 Also add a section above weekly plan which should have the abnormal observations, vitals and their respective food recommendations. I want you to generate diet plan for both vegetarian and non-vegetarian patients separately.
 """
+
+CUSTOM_QUERY_REPORT_PROMPT = """You are an expert healthcare data analyst. Generate a comprehensive, professional report based on the following information:
+
+**User Query:** {user_query}
+**Generated SQL Query:** {generated_query}
+**Retrieved Data:** {retrieved_data}
+**Database Type:** {database_type}
+**Database Name:** {database_name}
+
+Please create a detailed report that includes:
+
+1. **Executive Summary**
+   - Brief overview of what was requested and found
+   - Key findings and insights
+
+2. **Data Analysis**
+   - Detailed analysis of the retrieved data
+   - Patterns, trends, and notable observations
+   - Statistical insights where applicable
+
+3. **Technical Details**
+   - Query execution summary
+   - Data quality assessment
+   - Any limitations or considerations
+
+4. **Recommendations**
+   - Actionable insights based on the data
+   - Suggestions for further analysis if applicable
+
+Format the report in clear, professional markdown with appropriate headings and sections. Make it informative and easy to understand for both technical and non-technical audiences."""
