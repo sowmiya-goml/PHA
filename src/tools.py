@@ -1,4 +1,4 @@
-from api.dashboard import PatientDashboardService
+from services.dashboard_service import PatientDashboardService
 from db.session import get_database_manager, DatabaseManager
 from fastapi import Depends
 from services.bedrock_service import BedrockService
@@ -6,7 +6,6 @@ from services.database_operation_service import DatabaseOperationService
 from services.agent_services import AllergyService, AppointmentService, ConditionService, DietService, FollowupService, LabResultService, MedicationService, PatientService, ProcedureService
 from services.custom_query_service import CustomQueryService
 from api.dashboard import dashboard_controller
-from services.connection_service import ConnectionService
 
 '''def custom_query(db_manager: DatabaseManager = Depends(get_database_manager)):
     return get_custom_query_service(db_manager)'''
@@ -62,6 +61,6 @@ def diet_service(db_manager: DatabaseManager = Depends(get_database_manager)):
     return DietService(db_manager, bedrock_service, db_ops_service)
 
 def patient_dashboard_service(db_manager: DatabaseManager = Depends(get_database_manager)):
-    connection_service = ConnectionService(db_manager)
+    bedrock_service = BedrockService(db_manager)
     db_ops_service = DatabaseOperationService(db_manager)
-    return PatientDashboardService(db_manager, connection_service, db_ops_service)
+    return PatientDashboardService(db_manager, bedrock_service, db_ops_service)

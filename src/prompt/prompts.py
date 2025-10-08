@@ -652,3 +652,63 @@ Please create a detailed report that includes:
    - Suggestions for further analysis if applicable
 
 Format the report in clear, professional markdown with appropriate headings and sections. Make it informative and easy to understand for both technical and non-technical audiences."""
+
+
+DASHBOARD_VITALS_PROMPT = """
+You are a healthcare database query expert. Generate a precise SQL/NoSQL query to retrieve patient vital signs data.
+
+**Patient ID**: {patient_id}
+**Data Type Requested**: {data_type}
+**Query Description**: {query_description}
+
+**Database Schema Information**: 
+{schema_info}
+
+**CRITICAL INSTRUCTIONS**:
+1. **USE ONLY ACTUAL COLUMN NAMES**: Use the exact column names from the provided schema. Do NOT use generic names like C1, C2, etc.
+2. **NO MEDICAL CODES**: Do NOT filter by medical codes (like '2339-0', '2345-7') unless they actually exist in the data. Instead, filter by descriptive text or column values that match the vital sign type.
+3. **IDENTIFY BY DESCRIPTION/NAME**: Look for columns containing descriptive text that matches the vital sign type:
+   - For heart_rate: look for descriptions containing "heart rate", "pulse", "HR"
+   - For blood_pressure: look for "blood pressure", "systolic", "diastolic", "BP"
+   - For spo2: look for "oxygen saturation", "SpO2", "pulse oximetry"
+   - For temperature: look for "temperature", "temp", "body temperature"
+   - For blood_sugar: look for "glucose", "blood sugar", "blood glucose"
+   - For bmi: look for "BMI", "body mass index", "weight", "height"
+
+4. **SCHEMA ANALYSIS STEPS**:
+   - Identify the table most likely to contain {data_type} data
+   - Find the actual column names for: patient_id, timestamp/date, description/type, value, units
+   - Use LIKE or ILIKE operators to match descriptions containing relevant keywords
+   - Do NOT assume column names - use only what's provided in the schema
+
+5. **QUERY STRUCTURE**:
+   - SELECT actual column names 
+   - WHERE patient_id = '{patient_id}' (using actual patient_id column name)
+   - AND description/type column LIKE '%relevant_keyword%' (using actual description column name)
+   - ORDER BY actual_timestamp_column DESC
+   - LIMIT 1
+
+6. **DATABASE TYPE HANDLING**:
+   - Use appropriate syntax for the database type shown in schema_info
+   - For text matching, use LIKE (SQL) or appropriate text search for the database type
+
+**EXAMPLE PATTERN** (use actual column names from schema):
+```sql
+SELECT actual_timestamp_col, actual_patient_col, actual_description_col, actual_value_col
+FROM actual_table_name 
+WHERE actual_patient_col = '{patient_id}' 
+AND actual_description_col LIKE '%heart rate%'
+ORDER BY actual_timestamp_col DESC 
+LIMIT 1;
+```
+
+**REQUIREMENTS**:
+- Return only the query using ACTUAL column and table names from the schema
+- Use descriptive text matching, NOT medical codes
+- Filter by patient_id and relevant description keywords
+- Order by timestamp to get latest data
+- Limit to 1 result for most recent data
+- Handle patient_id parameter safely with quotes if needed
+
+**Query**:
+"""
