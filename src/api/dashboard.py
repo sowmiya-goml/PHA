@@ -14,157 +14,39 @@ from schemas.database_operations import DatabaseQueryResult
 logger = logging.getLogger(__name__)
 
 
-class PatientDashboardController:
-    """Controller for patient dashboard endpoints using real database connections."""
+class PatientDashboardService:
+    """Service class for patient dashboard operations."""
     
-    def __init__(self):
-        """Initialize the patient dashboard controller."""
-        self.router = APIRouter()
-        self._setup_routes()
-    
-    def get_connection_service(self, db_manager: DatabaseManager = Depends(get_database_manager)) -> ConnectionService:
-        """Dependency to get connection service."""
-        return ConnectionService(db_manager)
+    def __init__(self, db_manager: DatabaseManager, connection_service: ConnectionService, db_ops_service: DatabaseOperationService):
+        self.db_manager = db_manager
+        self.connection_service = connection_service
+        self.db_ops_service = db_ops_service
 
-    def get_database_operation_service(self, db_manager: DatabaseManager = Depends(get_database_manager)) -> DatabaseOperationService:
-        """Dependency to get database operation service."""  
-        return DatabaseOperationService(db_manager)
-    
-    def _setup_routes(self):
-        """Setup routes for patient dashboard endpoints."""
+    async def get_all_patient_data(self, patient_id: str, connection_id: str):
+        """Get all data for a patient from the specified database connection."""
+        data_types = {
+            "heart_rate": ["heart_rate", "status", "recorded_at", "device_id"],
+            "blood_pressure": ["systolic", "diastolic", "recorded_at", "device_id"],
+            "bmi": ["bmi", "weight", "height", "recorded_at"],
+            "spo2": ["spo2_percentage", "recorded_at", "device_id"],
+            "temperature": ["temperature_celsius", "temperature_fahrenheit", "recorded_at", "device_id"],
+            "blood_sugar": ["glucose_level", "test_type", "recorded_at"],
+            "recovery_tracker": ["stage", "progress_percentage", "notes", "updated_at"]
+        }
         
-        # Heart Rate endpoint
-        
-        @self.router.get("/patients_dasboard/{patient_id}/all")
-        async def get_patient_all_data(
-            patient_id: str = Path(..., description="Patient ID to fetch all data"),
-            connection_id: str = Query(..., description="Database connection ID to use for fetching data"),
-            connection_service: ConnectionService = Depends(self.get_connection_service),
-            db_operation_service: DatabaseOperationService = Depends(self.get_database_operation_service)
-        ):
-            """Get all data for a patient from the specified database connection."""
-            data_types = {
-                "heart_rate": ["heart_rate", "status", "recorded_at", "device_id"],
-                "blood_pressure": ["systolic", "diastolic", "recorded_at", "device_id"],
-                "bmi": ["bmi", "weight", "height", "recorded_at"],
-                "spo2": ["spo2_percentage", "recorded_at", "device_id"],
-                "temperature": ["temperature_celsius", "temperature_fahrenheit", "recorded_at", "device_id"],
-                "blood_sugar": ["glucose_level", "test_type", "recorded_at"],
-                "recovery_tracker": ["stage", "progress_percentage", "notes", "updated_at"]
-            }
-            all_data = {}
-            for data_type, columns in data_types.items():
-                try:
-                    result = await self._get_patient_vital_data(
-                        connection_service, db_operation_service, connection_id, patient_id, data_type, columns
-                    )
-                    all_data[data_type] = result
-                except HTTPException as e:
-                    all_data[data_type] = {"error": e.detail}
-            return all_data
-        
-        '''@self.router.get("/patients/{patient_id}/heart-rate")
-        async def get_patient_heart_rate(
-            patient_id: str = Path(..., description="Patient ID to fetch heart rate data for"),
-            connection_id: str = Query(..., description="Database connection ID to use for fetching data"),
-            connection_service: ConnectionService = Depends(self.get_connection_service),
-            db_operation_service: DatabaseOperationService = Depends(self.get_database_operation_service)
-        ):
-            """Get latest heart rate data for a patient from the specified database connection."""
-            return await self._get_patient_vital_data(
-                connection_service, db_operation_service, connection_id, patient_id, "heart_rate", 
-                ["heart_rate", "status", "recorded_at", "device_id"]
-            )
-        
-        # Blood Pressure endpoint 
-         
-        @self.router.get("/patients/{patient_id}/blood-pressure")
-        async def get_patient_blood_pressure(
-            patient_id: str = Path(..., description="Patient ID to fetch blood pressure data for"),
-            connection_id: str = Query(..., description="Database connection ID to use for fetching data"),
-            connection_service: ConnectionService = Depends(self.get_connection_service),
-            db_operation_service: DatabaseOperationService = Depends(self.get_database_operation_service)
-        ):
-            """Get latest blood pressure data for a patient from the specified database connection."""
-            return await self._get_patient_vital_data(
-                connection_service, db_operation_service, connection_id, patient_id, "blood_pressure",
-                ["systolic", "diastolic", "recorded_at", "device_id"]
-            )
-        
-        # BMI endpoint
-        @self.router.get("/patients/{patient_id}/bmi")
-        async def get_patient_bmi(
-            patient_id: str = Path(..., description="Patient ID to fetch BMI data for"),
-            connection_id: str = Query(..., description="Database connection ID to use for fetching data"),
-            connection_service: ConnectionService = Depends(self.get_connection_service),
-            db_operation_service: DatabaseOperationService = Depends(self.get_database_operation_service)
-        ):
-            """Get latest BMI data for a patient from the specified database connection."""
-            return await self._get_patient_vital_data(
-                connection_service, db_operation_service, connection_id, patient_id, "bmi",
-                ["bmi", "weight", "height", "recorded_at"]
-            )
-        
-        # SpO2 endpoint
-        @self.router.get("/patients/{patient_id}/spo2") 
-        async def get_patient_spo2(
-            patient_id: str = Path(..., description="Patient ID to fetch SpO2 data for"),
-            connection_id: str = Query(..., description="Database connection ID to use for fetching data"),
-            connection_service: ConnectionService = Depends(self.get_connection_service),
-            db_operation_service: DatabaseOperationService = Depends(self.get_database_operation_service)
-        ):
-            """Get latest SpO2 data for a patient from the specified database connection."""
-            return await self._get_patient_vital_data(
-                connection_service, db_operation_service, connection_id, patient_id, "spo2",
-                ["spo2_percentage", "recorded_at", "device_id"]
-            )
-        
-        # Temperature endpoint
-        @self.router.get("/patients/{patient_id}/temperature")
-        async def get_patient_temperature(
-            patient_id: str = Path(..., description="Patient ID to fetch temperature data for"),
-            connection_id: str = Query(..., description="Database connection ID to use for fetching data"),
-            connection_service: ConnectionService = Depends(self.get_connection_service),
-            db_operation_service: DatabaseOperationService = Depends(self.get_database_operation_service)
-        ):
-            """Get latest temperature data for a patient from the specified database connection."""
-            return await self._get_patient_vital_data(
-                connection_service, db_operation_service, connection_id, patient_id, "temperature",
-                ["temperature_celsius", "temperature_fahrenheit", "recorded_at", "device_id"]
-            )
-        
-        # Blood Sugar endpoint
-        @self.router.get("/patients/{patient_id}/blood-sugar")
-        async def get_patient_blood_sugar(
-            patient_id: str = Path(..., description="Patient ID to fetch blood sugar data for"),
-            connection_id: str = Query(..., description="Database connection ID to use for fetching data"),
-            connection_service: ConnectionService = Depends(self.get_connection_service),
-            db_operation_service: DatabaseOperationService = Depends(self.get_database_operation_service)
-        ):
-            """Get latest blood sugar data for a patient from the specified database connection."""
-            return await self._get_patient_vital_data(
-                connection_service, db_operation_service, connection_id, patient_id, "blood_sugar",
-                ["glucose_level", "test_type", "recorded_at"]
-            )
-        
-        # Recovery Tracker endpoint
-        @self.router.get("/patients/{patient_id}/recovery-tracker")
-        async def get_patient_recovery_tracker(
-            patient_id: str = Path(..., description="Patient ID to fetch recovery data for"),
-            connection_id: str = Query(..., description="Database connection ID to use for fetching data"),
-            connection_service: ConnectionService = Depends(self.get_connection_service),
-            db_operation_service: DatabaseOperationService = Depends(self.get_database_operation_service)
-        ):
-            """Get latest recovery tracking data for a patient from the specified database connection."""
-            return await self._get_patient_vital_data(
-                connection_service, db_operation_service, connection_id, patient_id, "recovery_tracker",
-                ["stage", "progress_percentage", "notes", "updated_at"]
-            )'''
+        all_data = {}
+        for data_type, columns in data_types.items():
+            try:
+                result = await self._get_patient_vital_data(
+                    connection_id, patient_id, data_type, columns
+                )
+                all_data[data_type] = result
+            except HTTPException as e:
+                all_data[data_type] = {"error": e.detail}
+        return all_data
 
     async def _get_patient_vital_data(
         self, 
-        connection_service: ConnectionService,
-        db_operation_service: DatabaseOperationService,
         connection_id: str, 
         patient_id: str, 
         data_type: str,
@@ -173,7 +55,7 @@ class PatientDashboardController:
         """Get patient vital data from the specified database connection using dynamic table discovery."""
         try:
             # Get the database connection configuration
-            connection = await connection_service.get_connection_by_id(connection_id)
+            connection = await self.connection_service.get_connection_by_id(connection_id)
             if not connection:
                 raise HTTPException(
                     status_code=404,
@@ -181,7 +63,7 @@ class PatientDashboardController:
                 )
             
             # Test the connection first
-            test_result = await connection_service.test_connection(connection_id)
+            test_result = await self.connection_service.test_connection(connection_id)
             if test_result.status != "success":
                 raise HTTPException(
                     status_code=503,
@@ -189,7 +71,7 @@ class PatientDashboardController:
                 )
             
             # Get database schema to discover available tables
-            schema_result = await connection_service.get_database_schema(connection_id)
+            schema_result = await self.connection_service.get_database_schema(connection_id)
             if schema_result.status != "success":
                 raise HTTPException(
                     status_code=500,
@@ -224,7 +106,7 @@ class PatientDashboardController:
             )
             
             # Execute the query using database operation service
-            query_results: List[DatabaseQueryResult] = await db_operation_service.execute_query(
+            query_results: List[DatabaseQueryResult] = await self.db_ops_service.execute_query(
                 connection_id=connection_id,
                 query=query,
                 limit=1  # Only get the latest record
@@ -440,6 +322,41 @@ class PatientDashboardController:
             {order_clause}
             LIMIT 1
             """
+
+
+class PatientDashboardController:
+    """Controller for patient dashboard endpoints using real database connections."""
+    
+    def __init__(self):
+        """Initialize the patient dashboard controller."""
+        self.router = APIRouter()
+        self._setup_routes()
+    
+    def get_connection_service(self, db_manager: DatabaseManager = Depends(get_database_manager)) -> ConnectionService:
+        """Dependency to get connection service."""
+        return ConnectionService(db_manager)
+
+    def get_database_operation_service(self, db_manager: DatabaseManager = Depends(get_database_manager)) -> DatabaseOperationService:
+        """Dependency to get database operation service."""  
+        return DatabaseOperationService(db_manager)
+
+    def get_dashboard_service(self, db_manager: DatabaseManager = Depends(get_database_manager)) -> PatientDashboardService:
+        """Dependency to get dashboard service."""
+        connection_service = ConnectionService(db_manager)
+        db_ops_service = DatabaseOperationService(db_manager)
+        return PatientDashboardService(db_manager, connection_service, db_ops_service)
+    
+    def _setup_routes(self):
+        """Setup routes for patient dashboard endpoints."""
+        
+        @self.router.get("/patients_dasboard/{patient_id}/all")
+        async def get_patient_all_data(
+            patient_id: str = Path(..., description="Patient ID to fetch all data"),
+            connection_id: str = Query(..., description="Database connection ID to use for fetching data"),
+            dashboard_service: PatientDashboardService = Depends(self.get_dashboard_service)
+        ):
+            """Get all data for a patient from the specified database connection."""
+            return await dashboard_service.get_all_patient_data(patient_id, connection_id)
 
 
 # Create controller instance and get router

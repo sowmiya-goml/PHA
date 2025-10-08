@@ -9,10 +9,10 @@ from utils.helpers import setup_logging
 from db.session import db_manager
 from api.agents import router as agents_router
 from api.custom_query import router as custom_query_router
-
-
+from test import router as test_router
 
 setup_logging()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan context manager for startup/shutdown events."""
@@ -24,7 +24,6 @@ async def lifespan(app: FastAPI):
         
     yield
     
-   
     try:
         if db_manager.client:
             db_manager.close()
@@ -48,8 +47,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-
+# Include all routers
 app.include_router(connections.router, prefix="/connections", tags=["Database Connections"])
 app.include_router(healthcare.router, prefix="/healthcare", tags=["Healthcare Queries"])
 app.include_router(dashboard.router, prefix="/dashboard", tags=["Patient Dashboard"])
@@ -60,8 +58,7 @@ app.include_router(cerner_router.router)
 app.include_router(epic_router.router)
 app.include_router(cerner_tools.router)
 app.include_router(custom_query_router, prefix="/api/v1")
-
-
+app.include_router(test_router, prefix="/api/v1")
 
 if __name__ == "__main__":
     import uvicorn

@@ -87,3 +87,5 @@ async def process_custom_query_get(
             status_code=500,
             detail=f"Error processing custom query: {str(e)}"
         )
+    
+    
