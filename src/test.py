@@ -6,9 +6,10 @@ from services.bedrock_service import BedrockService
 from services.database_operation_service import DatabaseOperationService
 from db.session import get_database_manager, DatabaseManager
 from schemas.database_operations import QueryExecutionResponse
+from schemas.schema import PatientSummary, PatientRequest
 from services.agent_services import PatientService
 from api.dashboard import PatientDashboardService
-from tools import custom_query, patient_service, patient_dashboard_service
+from tools import custom_query, patient_service, patient_dashboard_service, generate_patient_observ, generate_vitals_summary_endpoint
 from api.agents import get_patient_service
 
 router = APIRouter(
@@ -74,3 +75,13 @@ async def get_patient_dashboard_data(
             status_code=500,
             detail=f"Error fetching patient dashboard data: {str(e)}"
         )
+
+@router.get("/test-epic-patient-agent/{organization}/{patient_id}", response_model=PatientSummary)
+async def test_generate_patient_observ(patient_id: str,organization: str):
+    print(patient_id,organization)
+    return await generate_patient_observ(patient_id, organization)
+
+@router.get("/test-cerner-vitals-agent/{organization}/{patient_id}")
+async def test_generate_vitals_summary_endpoint(patient_id: str, organization: str):
+    return await generate_vitals_summary_endpoint(patient_id, organization)
+
